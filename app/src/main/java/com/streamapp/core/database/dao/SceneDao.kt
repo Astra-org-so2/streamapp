@@ -15,16 +15,16 @@ import kotlinx.coroutines.flow.Flow
 abstract class SceneDao {
 
     // Scene CRUD
-    @Query("SELECT * FROM scenes ORDER BY orderIndex ASC, createdAt ASC")
+    @Query("SELECT * FROM scenes ORDER BY orderIndex ASC, createdAt ASC, id ASC")
     abstract fun getAllScenes(): Flow<List<SceneEntity>>
 
-    @Query("SELECT * FROM scenes ORDER BY orderIndex ASC, createdAt ASC")
+    @Query("SELECT * FROM scenes ORDER BY orderIndex ASC, createdAt ASC, id ASC")
     abstract suspend fun getAllScenesSync(): List<SceneEntity>
 
     @Query("SELECT * FROM scenes WHERE id = :sceneId LIMIT 1")
     abstract suspend fun getSceneById(sceneId: String): SceneEntity?
 
-    @Query("SELECT * FROM scenes WHERE isSelected = 1 ORDER BY orderIndex ASC LIMIT 1")
+    @Query("SELECT * FROM scenes WHERE isSelected = 1 ORDER BY orderIndex ASC, createdAt ASC, id ASC LIMIT 1")
     abstract fun getActiveScene(): Flow<SceneEntity?>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -45,7 +45,7 @@ abstract class SceneDao {
     @Query("UPDATE scenes SET isSelected = (id = :selectedId) WHERE EXISTS (SELECT 1 FROM scenes WHERE id = :selectedId)")
     protected abstract suspend fun updateActiveSceneFlagsIfPresent(selectedId: String): Int
 
-    @Query("UPDATE scenes SET isSelected = CASE WHEN id = (SELECT id FROM scenes ORDER BY orderIndex ASC, createdAt ASC LIMIT 1) THEN 1 ELSE 0 END WHERE (SELECT COUNT(*) FROM scenes WHERE isSelected = 1) != 1")
+    @Query("UPDATE scenes SET isSelected = CASE WHEN id = (SELECT id FROM scenes ORDER BY orderIndex ASC, createdAt ASC, id ASC LIMIT 1) THEN 1 ELSE 0 END WHERE (SELECT COUNT(*) FROM scenes WHERE isSelected = 1) != 1")
     abstract suspend fun normalizeActiveSceneInvariant()
 
     @Transaction
@@ -93,10 +93,10 @@ abstract class SceneDao {
     }
 
     // Layer CRUD
-    @Query("SELECT * FROM scene_layers WHERE sceneId = :sceneId ORDER BY zIndex ASC")
+    @Query("SELECT * FROM scene_layers WHERE sceneId = :sceneId ORDER BY zIndex ASC, id ASC")
     abstract fun getLayersForScene(sceneId: String): Flow<List<SceneLayerEntity>>
 
-    @Query("SELECT * FROM scene_layers WHERE sceneId = :sceneId ORDER BY zIndex ASC")
+    @Query("SELECT * FROM scene_layers WHERE sceneId = :sceneId ORDER BY zIndex ASC, id ASC")
     abstract suspend fun getLayersForSceneSync(sceneId: String): List<SceneLayerEntity>
 
     @Query("SELECT MAX(zIndex) FROM scene_layers WHERE sceneId = :sceneId")

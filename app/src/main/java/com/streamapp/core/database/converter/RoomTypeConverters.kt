@@ -13,13 +13,7 @@ class RoomTypeConverters {
 
     @TypeConverter
     fun toLayerType(value: String?): LayerType? {
-        return value?.let {
-            try {
-                LayerType.valueOf(it)
-            } catch (e: IllegalArgumentException) {
-                LayerType.WEB
-            }
-        }
+        return value?.let { LayerType.fromString(it) }
     }
 
     @TypeConverter

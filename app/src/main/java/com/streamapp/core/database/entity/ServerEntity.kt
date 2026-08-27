@@ -12,27 +12,32 @@ data class ServerEntity(
     @PrimaryKey val id: String,
     val name: String,
     val host: String,
-    val port: Int,
-    val protocol: String,
-    val authType: String,
-    val isDefault: Boolean,
-    val status: String,
-    val latencyMs: Long?,
-    val serverVersion: String?,
-    val availableStreamsCount: Int
+    val port: Int = 47990,
+    val protocol: String = StreamProtocol.WEBRTC.name,
+    val authType: String = AuthType.NONE.name,
+    val isDefault: Boolean = false,
+    val status: String = ServerStatus.ONLINE.name,
+    val latencyMs: Long? = null,
+    val serverVersion: String? = null,
+    val availableStreamsCount: Int = 0
 ) {
     fun toDomain(): StreamServer = StreamServer(
         id = id,
         name = name,
         host = host,
-        port = port,
+        port = if (port in 1..65535) port else 47990,
         protocol = StreamProtocol.fromString(protocol),
         authType = AuthType.fromString(authType),
         isDefault = isDefault,
         status = ServerStatus.fromString(status),
         latencyMs = latencyMs,
         serverVersion = serverVersion,
-        availableStreamsCount = availableStreamsCount
+        availableStreamsCount = availableStreamsCount.coerceAtLeast(0)
+    )
+
+    fun sanitized(): ServerEntity = copy(
+        port = if (port in 1..65535) port else 47990,
+        availableStreamsCount = availableStreamsCount.coerceAtLeast(0)
     )
 
     companion object {
@@ -40,14 +45,14 @@ data class ServerEntity(
             id = server.id,
             name = server.name,
             host = server.host,
-            port = server.port,
+            port = if (server.port in 1..65535) server.port else 47990,
             protocol = server.protocol.name,
             authType = server.authType.name,
             isDefault = server.isDefault,
             status = server.status.name,
             latencyMs = server.latencyMs,
             serverVersion = server.serverVersion,
-            availableStreamsCount = server.availableStreamsCount
+            availableStreamsCount = server.availableStreamsCount.coerceAtLeast(0)
         )
     }
 }

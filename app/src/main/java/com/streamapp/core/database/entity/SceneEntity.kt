@@ -21,8 +21,26 @@ data class SceneEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-enum class LayerType {
-    WEB, IMAGE, TEXT, CAMERA_PIP
+enum class LayerType(val code: String) {
+    WEB("web"),
+    IMAGE("image"),
+    TEXT("text"),
+    CAMERA_PIP("camera_pip");
+
+    companion object {
+        fun fromString(value: String?): LayerType {
+            if (value == null) return WEB
+            return entries.find {
+                it.name.equals(value, ignoreCase = true) || it.code.equals(value, ignoreCase = true)
+            } ?: when (value.uppercase()) {
+                "CAMERA", "PIP", "WEBCAM" -> CAMERA_PIP
+                "TXT", "LABEL" -> TEXT
+                "IMG", "PICTURE" -> IMAGE
+                "URL", "HTML" -> WEB
+                else -> WEB
+            }
+        }
+    }
 }
 
 @Entity(
