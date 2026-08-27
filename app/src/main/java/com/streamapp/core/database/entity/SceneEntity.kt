@@ -5,7 +5,13 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "scenes")
+@Entity(
+    tableName = "scenes",
+    indices = [
+        Index(value = ["isSelected"]),
+        Index(value = ["orderIndex"])
+    ]
+)
 data class SceneEntity(
     @PrimaryKey
     val id: String,
@@ -29,7 +35,10 @@ enum class LayerType {
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["sceneId"])]
+    indices = [
+        Index(value = ["sceneId"]),
+        Index(value = ["sceneId", "zIndex"])
+    ]
 )
 data class SceneLayerEntity(
     @PrimaryKey

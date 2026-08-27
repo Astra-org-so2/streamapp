@@ -27,8 +27,8 @@ abstract class SceneDao {
     @Query("SELECT * FROM scenes WHERE isSelected = 1 LIMIT 1")
     abstract fun getActiveScene(): Flow<SceneEntity?>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    abstract suspend fun insertScene(scene: SceneEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertScene(scene: SceneEntity): Long
 
     @Update
     abstract suspend fun updateScene(scene: SceneEntity)
@@ -40,23 +40,36 @@ abstract class SceneDao {
     abstract suspend fun deleteSceneById(sceneId: String)
 
     @Query("UPDATE scenes SET isSelected = CASE WHEN id = :selectedId THEN 1 ELSE 0 END")
-    abstract suspend fun setActiveScene(selectedId: String)
+    protected abstract suspend fun updateActiveSceneFlags(selectedId: String)
+
+    @Transaction
+    open suspend fun setActiveScene(selectedId: String): Boolean {
+        val scene = getSceneById(selectedId) ?: return false
+        updateActiveSceneFlags(scene.id)
+        return true
+    }
 
     @Transaction
     open suspend fun createSceneWithSelection(scene: SceneEntity) {
         insertScene(scene)
-        setActiveScene(scene.id)
+        updateActiveSceneFlags(scene.id)
     }
 
     @Transaction
-    open suspend fun deleteSceneAndSelectFallback(sceneId: String): Boolean {
-        val all = getAllScenesSync()
-        if (all.size <= 1) return false
+    open suspend fun deleteSceneAndSelectNext(sceneId: String): Boolean {
+        val targetScene = getSceneById(sceneId) ?: return false
+        val allScenes = getAllScenesSync()
+        if (allScenes.size <= 1) return false // Do not delete last remaining scene
+
+        val wasSelected = targetScene.isSelected
         deleteLayersForScene(sceneId)
         deleteSceneById(sceneId)
-        val remaining = getAllScenesSync()
-        if (remaining.isNotEmpty() && remaining.none { it.isSelected }) {
-            setActiveScene(remaining.first().id)
+
+        if (wasSelected) {
+            val remaining = getAllScenesSync()
+            if (remaining.isNotEmpty()) {
+                updateActiveSceneFlags(remaining.first().id)
+            }
         }
         return true
     }
@@ -71,11 +84,11 @@ abstract class SceneDao {
     @Query("SELECT MAX(zIndex) FROM scene_layers WHERE sceneId = :sceneId")
     abstract suspend fun getMaxZIndexForScene(sceneId: String): Int?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    abstract suspend fun insertLayer(layer: SceneLayerEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertLayer(layer: SceneLayerEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    abstract suspend fun insertLayers(layers: List<SceneLayerEntity>)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertLayers(layers: List<SceneLayerEntity>): List<Long>
 
     @Update
     abstract suspend fun updateLayer(layer: SceneLayerEntity)
