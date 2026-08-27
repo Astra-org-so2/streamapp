@@ -21,7 +21,13 @@ data class StreamServer(
 enum class StreamProtocol {
     WEBRTC,
     MOONLIGHT,
-    CUSTOM_UDP
+    CUSTOM_UDP,
+    UNKNOWN;
+
+    companion object {
+        fun fromString(value: String): StreamProtocol =
+            entries.find { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
+    }
 }
 
 @Serializable
@@ -29,7 +35,13 @@ enum class AuthType {
     NONE,
     PIN,
     PASSWORD,
-    TOKEN
+    TOKEN,
+    UNKNOWN;
+
+    companion object {
+        fun fromString(value: String): AuthType =
+            entries.find { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
+    }
 }
 
 @Serializable
@@ -37,7 +49,13 @@ enum class ServerStatus {
     ONLINE,
     OFFLINE,
     BUSY,
-    UNREACHABLE
+    UNREACHABLE,
+    UNKNOWN;
+
+    companion object {
+        fun fromString(value: String): ServerStatus =
+            entries.find { it.name.equals(value, ignoreCase = true) } ?: UNKNOWN
+    }
 }
 
 enum class LatencyQuality {

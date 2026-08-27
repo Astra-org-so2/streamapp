@@ -56,4 +56,13 @@ data class SceneLayerEntity(
     val zIndex: Int = 0,
     val isVisible: Boolean = true,
     val isLocked: Boolean = false
-)
+) {
+    fun sanitized(): SceneLayerEntity = copy(
+        posX = posX.coerceIn(0.0f, 1.0f),
+        posY = posY.coerceIn(0.0f, 1.0f),
+        width = width.coerceIn(0.01f, 1.0f),
+        height = height.coerceIn(0.01f, 1.0f),
+        scale = scale.coerceIn(0.1f, 5.0f),
+        alpha = alpha.coerceIn(0.0f, 1.0f)
+    )
+}

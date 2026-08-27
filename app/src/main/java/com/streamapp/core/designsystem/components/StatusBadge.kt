@@ -36,6 +36,7 @@ fun StatusBadge(
         ServerStatus.OFFLINE -> StatusOffline to "Offline"
         ServerStatus.BUSY -> StatusWarning to "Busy"
         ServerStatus.UNREACHABLE -> StatusError to "Unreachable"
+        ServerStatus.UNKNOWN -> StatusOffline to "Unknown"
     }
 
     Row(

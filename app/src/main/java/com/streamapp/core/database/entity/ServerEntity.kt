@@ -26,10 +26,10 @@ data class ServerEntity(
         name = name,
         host = host,
         port = port,
-        protocol = try { StreamProtocol.valueOf(protocol) } catch (e: Exception) { StreamProtocol.WEBRTC },
-        authType = try { AuthType.valueOf(authType) } catch (e: Exception) { AuthType.NONE },
+        protocol = StreamProtocol.fromString(protocol),
+        authType = AuthType.fromString(authType),
         isDefault = isDefault,
-        status = try { ServerStatus.valueOf(status) } catch (e: Exception) { ServerStatus.ONLINE },
+        status = ServerStatus.fromString(status),
         latencyMs = latencyMs,
         serverVersion = serverVersion,
         availableStreamsCount = availableStreamsCount

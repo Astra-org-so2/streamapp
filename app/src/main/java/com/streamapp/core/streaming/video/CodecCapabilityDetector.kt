@@ -1,6 +1,7 @@
 package com.streamapp.core.streaming.video
 
 import android.media.MediaCodecInfo
+import android.media.MediaCodecInfo.CodecCapabilities
 import android.media.MediaCodecList
 import android.os.Build
 import com.streamapp.core.common.logger.AppLogger
@@ -14,7 +15,11 @@ data class CodecProfileCapability(
     val isHardwareAccelerated: Boolean,
     val isLowLatencySupported: Boolean,
     val maxResolutionWidth: Int,
-    val maxResolutionHeight: Int
+    val maxResolutionHeight: Int,
+    val maxBitrateBps: Int,
+    val maxFrameRate: Int,
+    val supportsSurfaceInput: Boolean,
+    val supportedProfiles: List<Int> = emptyList()
 )
 
 @Singleton
@@ -25,17 +30,17 @@ class CodecCapabilityDetector @Inject constructor() {
         val codecInfos = codecList.codecInfos
 
         return VideoCodec.entries.map { codec ->
-            checkCodecSupport(codec, codecInfos)
+            checkEncoderSupport(codec, codecInfos)
         }
     }
 
     fun getPreferredCodec(): VideoCodec {
         val capabilities = getSupportedCodecs()
-        AppLogger.i(LogCategory.VIDEO, "Device Codec Capabilities: $capabilities")
+        AppLogger.i(LogCategory.VIDEO, "Device Hardware Encoder Capabilities: $capabilities")
 
-        // Preferred order: AV1 -> HEVC -> H264 -> VP9
+        // Preferred order for broadcasting: AV1 -> HEVC -> H264 -> VP9
         val preferred = capabilities
-            .filter { it.isHardwareAccelerated }
+            .filter { it.isHardwareAccelerated && it.supportsSurfaceInput }
             .sortedByDescending { cap ->
                 when (cap.codec) {
                     VideoCodec.AV1 -> 4
@@ -46,28 +51,36 @@ class CodecCapabilityDetector @Inject constructor() {
             }
             .firstOrNull()?.codec ?: VideoCodec.H264
 
-        AppLogger.i(LogCategory.VIDEO, "Selected preferred hardware codec: $preferred")
+        AppLogger.i(LogCategory.VIDEO, "Selected preferred hardware video encoder: $preferred")
         return preferred
     }
 
-    private fun checkCodecSupport(
+    private fun checkEncoderSupport(
         codec: VideoCodec,
         codecInfos: Array<MediaCodecInfo>
     ): CodecProfileCapability {
         for (info in codecInfos) {
-            if (info.isEncoder) continue
+            // Must inspect ENCODER capabilities for streaming broadcast
+            if (!info.isEncoder) continue
+
             val types = info.supportedTypes
             for (type in types) {
                 if (type.equals(codec.mimeType, ignoreCase = true)) {
-                    val caps = info.getCapabilitiesForType(type)
+                    val caps = try {
+                        info.getCapabilitiesForType(type)
+                    } catch (e: Exception) {
+                        null
+                    } ?: continue
+
                     val isHw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         info.isHardwareAccelerated
                     } else {
-                        !info.name.startsWith("OMX.google.") && !info.name.startsWith("c2.android.")
+                        !info.name.startsWith("OMX.google.", ignoreCase = true) &&
+                                !info.name.startsWith("c2.android.", ignoreCase = true)
                     }
 
                     val isLowLatency = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+                        caps.isFeatureSupported(CodecCapabilities.FEATURE_LowLatency)
                     } else {
                         false
                     }
@@ -75,13 +88,22 @@ class CodecCapabilityDetector @Inject constructor() {
                     val videoCaps = caps.videoCapabilities
                     val maxWidth = videoCaps?.supportedWidths?.upper ?: 1920
                     val maxHeight = videoCaps?.supportedHeights?.upper ?: 1080
+                    val maxBitrate = videoCaps?.bitrateRange?.upper ?: 20_000_000
+                    val maxFps = videoCaps?.supportedFrameRates?.upper?.toInt() ?: 60
+
+                    val supportsSurface = caps.colorFormats.contains(CodecCapabilities.COLOR_FormatSurface)
+                    val profiles = caps.profileLevels?.map { it.profile } ?: emptyList()
 
                     return CodecProfileCapability(
                         codec = codec,
                         isHardwareAccelerated = isHw,
                         isLowLatencySupported = isLowLatency,
                         maxResolutionWidth = maxWidth,
-                        maxResolutionHeight = maxHeight
+                        maxResolutionHeight = maxHeight,
+                        maxBitrateBps = maxBitrate,
+                        maxFrameRate = maxFps,
+                        supportsSurfaceInput = supportsSurface,
+                        supportedProfiles = profiles
                     )
                 }
             }
@@ -92,7 +114,11 @@ class CodecCapabilityDetector @Inject constructor() {
             isHardwareAccelerated = false,
             isLowLatencySupported = false,
             maxResolutionWidth = 1280,
-            maxResolutionHeight = 720
+            maxResolutionHeight = 720,
+            maxBitrateBps = 6_000_000,
+            maxFrameRate = 30,
+            supportsSurfaceInput = false,
+            supportedProfiles = emptyList()
         )
     }
 }

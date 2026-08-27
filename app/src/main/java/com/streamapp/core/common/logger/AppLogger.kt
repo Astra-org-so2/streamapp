@@ -10,12 +10,14 @@ enum class LogCategory {
     VIDEO,
     AUTH,
     DATABASE,
-    UI
+    UI,
+    CHAT,
+    FEATURES,
+    STORAGE
 }
 
 /**
- * Centralized, production-safe logger with category tagging and strict PII protection.
- * In release mode, debug logging is disabled and secrets are never printed.
+ * Centralized, production-safe logger with category tagging and strict PII/credential redaction.
  */
 object AppLogger {
     private const val TAG_PREFIX = "StreamApp"
@@ -44,11 +46,13 @@ object AppLogger {
     }
 
     /**
-     * Strips tokens, passwords, PINs, and authentication headers from logs.
+     * Strips stream keys, RTMP URLs, tokens, passwords, PINs, and WebRTC SDP credentials from logs.
      */
     private fun sanitize(message: String): String {
         return message
-            .replace(Regex("(?i)(password|token|secret|auth|bearer)\\s*[:=]\\s*[^\\s,]+"), "$1=[REDACTED]")
+            .replace(Regex("(?i)(password|token|secret|auth|bearer|streamkey|apikey)\\s*[:=]\\s*[^\\s,]+"), "$1=[REDACTED]")
             .replace(Regex("(?i)(pin)\\s*[:=]\\s*\\d+"), "$1=[REDACTED]")
+            .replace(Regex("(rtmp[s]?://[^/]+/[^/]+/)([^\\s/?]+)"), "$1[REDACTED_STREAM_KEY]")
+            .replace(Regex("(?i)(ufrag|pwd)[:=][^\\s;]+"), "$1=[REDACTED]")
     }
 }

@@ -1,10 +1,7 @@
 package com.streamapp.core.input.normalizer
 
-import com.streamapp.core.input.model.GamepadAxisType
-import com.streamapp.core.input.model.NormalizedInputEvent
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.abs
 import kotlin.math.sqrt
 
 @Singleton
@@ -13,10 +10,13 @@ class InputNormalizer @Inject constructor() {
     private val deadzoneThreshold = 0.10f
 
     /**
-     * Applies radial deadzone filtering and remapping to thumbstick axes.
+     * Applies radial deadzone filtering and remapping to thumbstick axes with input clamping.
      */
     fun normalizeThumbstick(rawX: Float, rawY: Float): Pair<Float, Float> {
-        val magnitude = sqrt(rawX * rawX + rawY * rawY)
+        val clampedX = rawX.coerceIn(-1.0f, 1.0f)
+        val clampedY = rawY.coerceIn(-1.0f, 1.0f)
+
+        val magnitude = sqrt(clampedX * clampedX + clampedY * clampedY)
         if (magnitude < deadzoneThreshold) {
             return 0f to 0f
         }
@@ -25,18 +25,19 @@ class InputNormalizer @Inject constructor() {
         val normalizedMagnitude = (magnitude - deadzoneThreshold) / (1.0f - deadzoneThreshold)
         val clampedMagnitude = normalizedMagnitude.coerceIn(0f, 1f)
 
-        val normalizedX = (rawX / magnitude) * clampedMagnitude
-        val normalizedY = (rawY / magnitude) * clampedMagnitude
+        val normalizedX = (clampedX / magnitude) * clampedMagnitude
+        val normalizedY = (clampedY / magnitude) * clampedMagnitude
 
-        return normalizedX to normalizedY
+        return normalizedX.coerceIn(-1f, 1f) to normalizedY.coerceIn(-1f, 1f)
     }
 
     /**
-     * Normalizes analog trigger input [0.0 .. 1.0] with deadzone filtering.
+     * Normalizes analog trigger input [0.0 .. 1.0] with deadzone filtering and pre-clamping.
      */
     fun normalizeTrigger(rawValue: Float): Float {
-        if (rawValue < 0.05f) return 0f
-        return ((rawValue - 0.05f) / 0.95f).coerceIn(0f, 1f)
+        val clamped = rawValue.coerceIn(0f, 1f)
+        if (clamped < 0.05f) return 0f
+        return ((clamped - 0.05f) / 0.95f).coerceIn(0f, 1f)
     }
 
     /**

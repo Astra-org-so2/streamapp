@@ -7,13 +7,17 @@ import com.streamapp.core.input.model.GamepadAxisType
 import com.streamapp.core.input.model.GamepadButtonType
 import com.streamapp.core.input.model.NormalizedInputEvent
 import com.streamapp.core.input.normalizer.InputNormalizer
+import java.util.EnumMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class PhysicalGamepadHandler @Inject constructor(
     private val normalizer: InputNormalizer
 ) {
+    private val previousAxisValues = EnumMap<GamepadAxisType, Float>(GamepadAxisType::class.java)
+    private val axisDeltaThreshold = 0.008f
 
     fun handleKeyEvent(event: KeyEvent): NormalizedInputEvent.GamepadButton? {
         if ((event.source and InputDevice.SOURCE_GAMEPAD) != InputDevice.SOURCE_GAMEPAD &&
@@ -48,35 +52,54 @@ class PhysicalGamepadHandler @Inject constructor(
     }
 
     fun handleMotionEvent(event: MotionEvent): List<NormalizedInputEvent> {
-        if ((event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK) {
+        if ((event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK &&
+            (event.source and InputDevice.SOURCE_GAMEPAD) != InputDevice.SOURCE_GAMEPAD
+        ) {
             return emptyList()
         }
 
+        val device = event.device
         val events = mutableListOf<NormalizedInputEvent>()
 
-        // Left Thumbstick
+        // 1. Left Thumbstick (AXIS_X, AXIS_Y)
         val rawLx = event.getAxisValue(MotionEvent.AXIS_X)
         val rawLy = event.getAxisValue(MotionEvent.AXIS_Y)
         val (normLx, normLy) = normalizer.normalizeThumbstick(rawLx, rawLy)
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.LEFT_STICK_X, normLx))
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.LEFT_STICK_Y, normLy))
 
-        // Right Thumbstick
-        val rawRx = event.getAxisValue(MotionEvent.AXIS_Z)
-        val rawRy = event.getAxisValue(MotionEvent.AXIS_RZ)
+        checkAndAddAxis(events, GamepadAxisType.LEFT_STICK_X, normLx)
+        checkAndAddAxis(events, GamepadAxisType.LEFT_STICK_Y, normLy)
+
+        // 2. Right Thumbstick (AXIS_Z/AXIS_RZ or fallback AXIS_RX/AXIS_RY)
+        val hasZ = device?.getMotionRange(MotionEvent.AXIS_Z) != null
+        val rawRx = if (hasZ) event.getAxisValue(MotionEvent.AXIS_Z) else event.getAxisValue(MotionEvent.AXIS_RX)
+        val rawRy = if (hasZ) event.getAxisValue(MotionEvent.AXIS_RZ) else event.getAxisValue(MotionEvent.AXIS_RY)
         val (normRx, normRy) = normalizer.normalizeThumbstick(rawRx, rawRy)
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.RIGHT_STICK_X, normRx))
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.RIGHT_STICK_Y, normRy))
 
-        // Analog Triggers
-        val rawL2 = event.getAxisValue(MotionEvent.AXIS_LTRIGGER).takeIf { it != 0f }
-            ?: event.getAxisValue(MotionEvent.AXIS_BRAKE)
-        val rawR2 = event.getAxisValue(MotionEvent.AXIS_RTRIGGER).takeIf { it != 0f }
-            ?: event.getAxisValue(MotionEvent.AXIS_GAS)
+        checkAndAddAxis(events, GamepadAxisType.RIGHT_STICK_X, normRx)
+        checkAndAddAxis(events, GamepadAxisType.RIGHT_STICK_Y, normRy)
 
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.LEFT_TRIGGER, normalizer.normalizeTrigger(rawL2)))
-        events.add(NormalizedInputEvent.GamepadAxis(GamepadAxisType.RIGHT_TRIGGER, normalizer.normalizeTrigger(rawR2)))
+        // 3. Analog Triggers (AXIS_LTRIGGER/AXIS_BRAKE, AXIS_RTRIGGER/AXIS_GAS)
+        val hasLTrigger = device?.getMotionRange(MotionEvent.AXIS_LTRIGGER) != null
+        val rawL2 = if (hasLTrigger) event.getAxisValue(MotionEvent.AXIS_LTRIGGER) else event.getAxisValue(MotionEvent.AXIS_BRAKE)
+
+        val hasRTrigger = device?.getMotionRange(MotionEvent.AXIS_RTRIGGER) != null
+        val rawR2 = if (hasRTrigger) event.getAxisValue(MotionEvent.AXIS_RTRIGGER) else event.getAxisValue(MotionEvent.AXIS_GAS)
+
+        checkAndAddAxis(events, GamepadAxisType.LEFT_TRIGGER, normalizer.normalizeTrigger(rawL2))
+        checkAndAddAxis(events, GamepadAxisType.RIGHT_TRIGGER, normalizer.normalizeTrigger(rawR2))
 
         return events
+    }
+
+    private fun checkAndAddAxis(
+        outList: MutableList<NormalizedInputEvent>,
+        axisType: GamepadAxisType,
+        newValue: Float
+    ) {
+        val prev = previousAxisValues[axisType] ?: 0f
+        if (abs(newValue - prev) >= axisDeltaThreshold || (newValue == 0f && prev != 0f)) {
+            previousAxisValues[axisType] = newValue
+            outList.add(NormalizedInputEvent.GamepadAxis(axisType, newValue))
+        }
     }
 }

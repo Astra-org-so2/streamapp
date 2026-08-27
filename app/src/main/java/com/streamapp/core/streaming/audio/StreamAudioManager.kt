@@ -23,6 +23,14 @@ class StreamAudioManager @Inject constructor(
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    // User-configured volume and mute state
+    private var userVolume = 1.0f
+    private var isUserMuted = false
+
+    // System-level focus transient states
+    private var focusDuckingMultiplier = 1.0f
+    private var isSystemFocusMuted = false
+
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
@@ -36,7 +44,7 @@ class StreamAudioManager @Inject constructor(
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
                 AppLogger.i(LogCategory.AUDIO, "Headphones disconnected - auto muting stream audio")
-                setMuted(true)
+                setUserMuted(true)
             }
         }
     }
@@ -45,22 +53,34 @@ class StreamAudioManager @Inject constructor(
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 AppLogger.w(LogCategory.AUDIO, "Audio focus lost permanently")
-                setMuted(true)
+                isSystemFocusMuted = true
+                focusDuckingMultiplier = 0.0f
+                recomputeEffectiveAudioState()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 AppLogger.w(LogCategory.AUDIO, "Audio focus lost transiently")
-                setVolume(0.2f)
+                isSystemFocusMuted = false
+                focusDuckingMultiplier = 0.2f
+                recomputeEffectiveAudioState()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 AppLogger.d(LogCategory.AUDIO, "Ducking audio volume")
-                setVolume(0.3f)
+                isSystemFocusMuted = false
+                focusDuckingMultiplier = 0.3f
+                recomputeEffectiveAudioState()
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                AppLogger.i(LogCategory.AUDIO, "Audio focus gained")
-                setVolume(1.0f)
-                setMuted(false)
+                AppLogger.i(LogCategory.AUDIO, "Audio focus gained -> restoring user volume and mute state")
+                isSystemFocusMuted = false
+                focusDuckingMultiplier = 1.0f
+                recomputeEffectiveAudioState()
             }
         }
+    }
+
+    private fun recomputeEffectiveAudioState() {
+        _isMuted.value = isUserMuted || isSystemFocusMuted
+        _volume.value = (userVolume * focusDuckingMultiplier).coerceIn(0f, 1f)
     }
 
     fun requestAudioFocus(): Boolean {
@@ -100,17 +120,19 @@ class StreamAudioManager @Inject constructor(
         }
     }
 
-    fun setMuted(muted: Boolean) {
-        _isMuted.value = muted
-        AppLogger.d(LogCategory.AUDIO, "Stream audio muted=$muted")
+    fun setUserMuted(muted: Boolean) {
+        isUserMuted = muted
+        recomputeEffectiveAudioState()
+        AppLogger.d(LogCategory.AUDIO, "User stream audio muted=$muted")
     }
 
     fun toggleMute() {
-        setMuted(!_isMuted.value)
+        setUserMuted(!isUserMuted)
     }
 
-    fun setVolume(vol: Float) {
-        _volume.value = vol.coerceIn(0f, 1f)
+    fun setUserVolume(vol: Float) {
+        userVolume = vol.coerceIn(0f, 1f)
+        recomputeEffectiveAudioState()
     }
 
     private fun registerNoisyReceiver() {
