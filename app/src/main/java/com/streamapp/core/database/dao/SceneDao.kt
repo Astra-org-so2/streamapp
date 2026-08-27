@@ -24,7 +24,7 @@ abstract class SceneDao {
     @Query("SELECT * FROM scenes WHERE id = :sceneId LIMIT 1")
     abstract suspend fun getSceneById(sceneId: String): SceneEntity?
 
-    @Query("SELECT * FROM scenes WHERE isSelected = 1 LIMIT 1")
+    @Query("SELECT * FROM scenes WHERE isSelected = 1 ORDER BY orderIndex ASC LIMIT 1")
     abstract fun getActiveScene(): Flow<SceneEntity?>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -39,37 +39,55 @@ abstract class SceneDao {
     @Query("DELETE FROM scenes WHERE id = :sceneId")
     abstract suspend fun deleteSceneById(sceneId: String)
 
-    @Query("UPDATE scenes SET isSelected = CASE WHEN id = :selectedId THEN 1 ELSE 0 END")
+    @Query("UPDATE scenes SET isSelected = (id = :selectedId)")
     protected abstract suspend fun updateActiveSceneFlags(selectedId: String)
+
+    @Query("UPDATE scenes SET isSelected = (id = :selectedId) WHERE EXISTS (SELECT 1 FROM scenes WHERE id = :selectedId)")
+    protected abstract suspend fun updateActiveSceneFlagsIfPresent(selectedId: String): Int
+
+    @Query("UPDATE scenes SET isSelected = CASE WHEN id = (SELECT id FROM scenes ORDER BY orderIndex ASC, createdAt ASC LIMIT 1) THEN 1 ELSE 0 END WHERE (SELECT COUNT(*) FROM scenes WHERE isSelected = 1) != 1")
+    abstract suspend fun normalizeActiveSceneInvariant()
 
     @Transaction
     open suspend fun setActiveScene(selectedId: String): Boolean {
-        val scene = getSceneById(selectedId) ?: return false
-        updateActiveSceneFlags(scene.id)
-        return true
+        val affected = updateActiveSceneFlagsIfPresent(selectedId)
+        return affected > 0
     }
 
     @Transaction
-    open suspend fun createSceneWithSelection(scene: SceneEntity) {
-        insertScene(scene)
-        updateActiveSceneFlags(scene.id)
+    open suspend fun createSceneWithSelection(scene: SceneEntity): Boolean {
+        val rowId = insertScene(scene)
+        if (rowId != -1L) {
+            updateActiveSceneFlags(scene.id)
+            return true
+        }
+        return false
     }
 
     @Transaction
     open suspend fun deleteSceneAndSelectNext(sceneId: String): Boolean {
-        val targetScene = getSceneById(sceneId) ?: return false
         val allScenes = getAllScenesSync()
         if (allScenes.size <= 1) return false // Do not delete last remaining scene
 
-        val wasSelected = targetScene.isSelected
+        val targetIndex = allScenes.indexOfFirst { it.id == sceneId }
+        if (targetIndex == -1) return false
+
+        val wasSelected = allScenes[targetIndex].isSelected
+
+        // Select neighbor: previous scene if available, otherwise next scene
+        val fallbackSceneId = if (targetIndex > 0) {
+            allScenes[targetIndex - 1].id
+        } else if (allScenes.size > 1) {
+            allScenes[1].id
+        } else {
+            null
+        }
+
         deleteLayersForScene(sceneId)
         deleteSceneById(sceneId)
 
-        if (wasSelected) {
-            val remaining = getAllScenesSync()
-            if (remaining.isNotEmpty()) {
-                updateActiveSceneFlags(remaining.first().id)
-            }
+        if (wasSelected && fallbackSceneId != null) {
+            updateActiveSceneFlagsIfPresent(fallbackSceneId)
         }
         return true
     }
@@ -84,10 +102,10 @@ abstract class SceneDao {
     @Query("SELECT MAX(zIndex) FROM scene_layers WHERE sceneId = :sceneId")
     abstract suspend fun getMaxZIndexForScene(sceneId: String): Int?
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun insertLayer(layer: SceneLayerEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun insertLayers(layers: List<SceneLayerEntity>): List<Long>
 
     @Update
@@ -103,10 +121,12 @@ abstract class SceneDao {
     abstract suspend fun deleteLayersForScene(sceneId: String)
 
     @Transaction
-    open suspend fun replaceSceneLayers(sceneId: String, layers: List<SceneLayerEntity>) {
-        val scene = getSceneById(sceneId) ?: return
+    open suspend fun replaceSceneLayers(sceneId: String, layers: List<SceneLayerEntity>): Boolean {
+        val scene = getSceneById(sceneId) ?: return false
+        val sanitizedLayers = layers.map { it.sanitized().copy(sceneId = scene.id) }
         deleteLayersForScene(scene.id)
-        insertLayers(layers)
+        val inserted = insertLayers(sanitizedLayers)
+        return inserted.none { it == -1L }
     }
 
     @Query("UPDATE scene_layers SET name = :name, content = :content WHERE id = :layerId")

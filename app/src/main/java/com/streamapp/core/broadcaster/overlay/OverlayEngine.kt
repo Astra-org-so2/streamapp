@@ -63,6 +63,9 @@ class OverlayEngine @Inject constructor(
                         zIndex = 0
                     )
                     sceneDao.insertLayer(defaultAlertLayer)
+                } else {
+                    // Enforce DB invariant: exactly 1 active selected scene
+                    sceneDao.normalizeActiveSceneInvariant()
                 }
             }
         }
