@@ -13,6 +13,8 @@ import androidx.core.app.NotificationCompat
 import com.streamapp.MainActivity
 import com.streamapp.core.broadcaster.audio.AudioManagerController
 import com.streamapp.core.broadcaster.stream.BroadcastManager
+import com.streamapp.core.common.logger.AppLogger
+import com.streamapp.core.common.logger.LogCategory
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -28,71 +30,148 @@ class ScreenCaptureService : Service() {
     @Inject
     lateinit var screenPreviewManager: ScreenPreviewManager
 
+    enum class ServiceState {
+        IDLE,
+        STARTING,
+        RUNNING,
+        STOPPING
+    }
+
+    @Volatile
+    private var currentState = ServiceState.IDLE
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
+        val action = intent?.action ?: return START_NOT_STICKY
+
         when (action) {
             ACTION_START_PREVIEW -> {
-                startForeground(NOTIFICATION_ID, createPreviewNotification())
-                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
-                val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(EXTRA_RESULT_DATA) as? Intent
+                if (currentState == ServiceState.STARTING || currentState == ServiceState.RUNNING) {
+                    AppLogger.w(LogCategory.STREAMING, "Ignoring duplicate ACTION_START_PREVIEW in state $currentState")
+                    return START_NOT_STICKY
                 }
-                if (resultData != null) {
+
+                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+                val resultData = extractResultData(intent)
+                if (resultData == null || resultCode == 0) {
+                    AppLogger.e(LogCategory.STREAMING, "Cannot start preview: MediaProjection resultData is missing")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+
+                currentState = ServiceState.STARTING
+                startForeground(NOTIFICATION_ID, createPreviewNotification())
+                try {
                     screenPreviewManager.startPreview(resultCode, resultData)
+                    currentState = ServiceState.RUNNING
+                } catch (e: Exception) {
+                    AppLogger.e(LogCategory.STREAMING, "Failed to start screen preview", e)
+                    stopServiceGracefully()
                 }
             }
+
             ACTION_START -> {
-                startForeground(NOTIFICATION_ID, createNotification())
-                val url = intent.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
-                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
-                val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(EXTRA_RESULT_DATA) as? Intent
+                if (currentState == ServiceState.STARTING || currentState == ServiceState.RUNNING) {
+                    AppLogger.w(LogCategory.STREAMING, "Ignoring duplicate ACTION_START in state $currentState")
+                    return START_NOT_STICKY
                 }
-                
-                if (resultData != null) {
+
+                val url = intent.getStringExtra(EXTRA_URL)
+                if (url.isNullOrBlank()) {
+                    AppLogger.e(LogCategory.STREAMING, "Cannot start stream: RTMP URL is missing")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+
+                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+                val resultData = extractResultData(intent)
+                if (resultData == null || resultCode == 0) {
+                    AppLogger.e(LogCategory.STREAMING, "Cannot start stream: MediaProjection resultData is missing")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+
+                currentState = ServiceState.STARTING
+                startForeground(NOTIFICATION_ID, createNotification())
+                try {
                     broadcastManager.initScreenStreaming(resultCode, resultData)
                     broadcastManager.startStreaming(url, isScreenStream = true)
+                    currentState = ServiceState.RUNNING
+                } catch (e: Exception) {
+                    AppLogger.e(LogCategory.STREAMING, "Failed to start screen broadcast", e)
+                    stopServiceGracefully()
                 }
             }
+
             ACTION_TOGGLE_MIC -> {
                 audioManager.toggleMicMute()
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.notify(NOTIFICATION_ID, createNotification())
             }
+
             ACTION_TOGGLE_MUSIC -> {
                 audioManager.togglePlayPause()
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.notify(NOTIFICATION_ID, createNotification())
             }
+
             ACTION_STOP -> {
-                screenPreviewManager.stopPreview()
-                broadcastManager.stopStreaming(isScreenStream = true)
-                audioManager.stopMusic()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
-                stopSelf()
+                stopServiceGracefully()
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        stopServiceGracefully()
+        super.onDestroy()
+    }
+
+    private fun extractResultData(intent: Intent): Intent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_RESULT_DATA) as? Intent
+        }
+    }
+
+    private fun stopServiceGracefully() {
+        if (currentState == ServiceState.STOPPING || currentState == ServiceState.IDLE) return
+        currentState = ServiceState.STOPPING
+
+        try {
+            broadcastManager.stopStreaming(isScreenStream = true)
+        } catch (e: Exception) {
+            AppLogger.e(LogCategory.STREAMING, "Error stopping broadcast", e)
+        } finally {
+            try {
+                screenPreviewManager.stopPreview()
+            } catch (e: Exception) {
+                AppLogger.e(LogCategory.STREAMING, "Error stopping preview", e)
+            } finally {
+                try {
+                    audioManager.stopMusic()
+                } catch (e: Exception) {
+                    AppLogger.e(LogCategory.AUDIO, "Error stopping music", e)
+                } finally {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        stopForeground(true)
+                    }
+                    currentState = ServiceState.IDLE
+                    stopSelf()
+                }
+            }
+        }
     }
 
     private fun createNotificationChannel() {
@@ -109,42 +188,27 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun createNotification(): Notification {
+    private fun createOpenAppPendingIntent(): PendingIntent {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        val openAppPendingIntent = PendingIntent.getActivity(
+        return PendingIntent.getActivity(
             this, 0, openAppIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
 
-        // Action: Stop Stream
-        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_STOP
+    private fun createServiceActionPendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, ScreenCaptureService::class.java).apply {
+            this.action = action
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent,
+        return PendingIntent.getService(
+            this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
 
-        // Action: Toggle Mic
-        val micIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_TOGGLE_MIC
-        }
-        val micPendingIntent = PendingIntent.getService(
-            this, 2, micIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Action: Toggle Music
-        val musicIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_TOGGLE_MUSIC
-        }
-        val musicPendingIntent = PendingIntent.getService(
-            this, 3, musicIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
+    private fun createNotification(): Notification {
         val micTitle = if (audioManager.isMicMuted.value) "🎙️ Вкл. Мик" else "🔇 Замутить"
         val musicTitle = if (audioManager.isPlaying.value) "⏸️ Музыка" else "▶️ Музыка"
 
@@ -152,39 +216,23 @@ class ScreenCaptureService : Service() {
             .setContentTitle("🔴 Стрим активен (В эфире)")
             .setContentText("Идет захват экрана и звука")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentIntent(openAppPendingIntent)
+            .setContentIntent(createOpenAppPendingIntent())
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹️ Стоп", stopPendingIntent)
-            .addAction(android.R.drawable.ic_lock_silent_mode, micTitle, micPendingIntent)
-            .addAction(android.R.drawable.ic_media_play, musicTitle, musicPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹️ Стоп", createServiceActionPendingIntent(ACTION_STOP, 1))
+            .addAction(android.R.drawable.ic_lock_silent_mode, micTitle, createServiceActionPendingIntent(ACTION_TOGGLE_MIC, 2))
+            .addAction(android.R.drawable.ic_media_play, musicTitle, createServiceActionPendingIntent(ACTION_TOGGLE_MUSIC, 3))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
     private fun createPreviewNotification(): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val openAppPendingIntent = PendingIntent.getActivity(
-            this, 0, openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🎮 Захват игры активен")
             .setContentText("Идет предпросмотр экрана в реальном времени")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentIntent(openAppPendingIntent)
+            .setContentIntent(createOpenAppPendingIntent())
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹️ Остановить", stopPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹️ Остановить", createServiceActionPendingIntent(ACTION_STOP, 1))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
