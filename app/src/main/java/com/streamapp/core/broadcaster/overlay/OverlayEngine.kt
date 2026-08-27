@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -67,7 +68,7 @@ class OverlayEngine @Inject constructor(
         }
 
         engineScope.launch {
-            activeScene.collect { scene ->
+            activeScene.collectLatest { scene ->
                 if (scene != null) {
                     sceneDao.getLayersForScene(scene.id).collect { layers ->
                         _activeLayers.value = layers
@@ -100,7 +101,7 @@ class OverlayEngine @Inject constructor(
 
     fun deleteScene(sceneId: String) {
         engineScope.launch {
-            sceneDao.deleteSceneAndSelectFallback(sceneId)
+            sceneDao.deleteSceneAndSelectNext(sceneId)
         }
     }
 
