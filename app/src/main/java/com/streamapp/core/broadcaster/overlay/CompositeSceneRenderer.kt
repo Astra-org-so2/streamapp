@@ -90,8 +90,8 @@ class CompositeSceneRenderer(
             val layers = _layersFlow.value
             layers.filter { it.type == LayerType.WEB }.forEach { layer ->
                 webViews[layer.id]?.let { wv ->
-                    val w = (layer.width * targetWidth).toInt().coerceAtLeast(100)
-                    val h = (layer.height * targetHeight).toInt().coerceAtLeast(50)
+                    val w = (layer.width * layer.scale * targetWidth).toInt().coerceAtLeast(100)
+                    val h = (layer.height * layer.scale * targetHeight).toInt().coerceAtLeast(50)
                     wv.layout(0, 0, w, h)
                 }
             }
@@ -150,8 +150,8 @@ class CompositeSceneRenderer(
                             setBackgroundColor(Color.TRANSPARENT)
                             webViewClient = WebViewClient()
                         }
-                        val w = (layer.width * targetWidth).toInt().coerceAtLeast(100)
-                        val h = (layer.height * targetHeight).toInt().coerceAtLeast(50)
+                        val w = (layer.width * layer.scale * targetWidth).toInt().coerceAtLeast(100)
+                        val h = (layer.height * layer.scale * targetHeight).toInt().coerceAtLeast(50)
                         wv.layout(0, 0, w, h)
                         wv.loadUrl(layer.content)
                         webViews[layer.id] = wv
@@ -232,8 +232,8 @@ class CompositeSceneRenderer(
                 layers.forEach { layer ->
                     val x = layer.posX * targetWidth
                     val y = layer.posY * targetHeight
-                    val w = layer.width * targetWidth
-                    val h = layer.height * targetHeight
+                    val w = layer.width * layer.scale * targetWidth
+                    val h = layer.height * layer.scale * targetHeight
 
                     canvas.save()
                     canvas.clipRect(x, y, x + w, y + h)
