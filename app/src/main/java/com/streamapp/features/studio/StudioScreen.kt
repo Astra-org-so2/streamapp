@@ -50,11 +50,15 @@ import com.streamapp.features.scene.LayersBottomSheet
 import com.streamapp.features.scene.SceneLayerCanvas
 import com.streamapp.features.scene.SceneLayoutEditorScreen
 import com.streamapp.features.scene.SceneQuickSwitcher
+import com.streamapp.core.broadcaster.stream.BroadcastState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -68,8 +72,12 @@ class StudioViewModel @Inject constructor(
     val streamHealthMonitor: StreamHealthMonitor,
     val screenPreviewManager: ScreenPreviewManager
 ) : ViewModel() {
-    private val _isLive = MutableStateFlow(false)
-    val isLive: StateFlow<Boolean> = _isLive.asStateFlow()
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    val isLive: StateFlow<Boolean> = broadcastManager.broadcastState
+        .map { it == BroadcastState.STREAMING || it == BroadcastState.CONNECTING }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val healthStats: StateFlow<StreamHealthStats> = streamHealthMonitor.healthStats
 
@@ -79,16 +87,23 @@ class StudioViewModel @Inject constructor(
 
     fun toggleLive() {
         viewModelScope.launch {
-            if (_isLive.value) {
+            if (isLive.value) {
                 broadcastManager.stopStreaming()
-                _isLive.value = false
             } else {
-                val activeDest = destinationDao.getAllDestinations().firstOrNull()?.firstOrNull { it.isEnabled }
-                val rtmpUrl = activeDest?.let { "${it.rtmpUrl}/${it.streamKey}" } ?: "rtmp://example.com/live"
+                val activeDest = destinationDao.getEnabledDestinations().firstOrNull()?.firstOrNull()
+                if (activeDest == null) {
+                    _errorMessage.value = "Нет активных платформ для стрима. Включите платформу во вкладке «Платформы»."
+                    return@launch
+                }
+                _errorMessage.value = null
+                val rtmpUrl = "${activeDest.rtmpUrl}/${activeDest.streamKey}"
                 broadcastManager.startStreaming(rtmpUrl)
-                _isLive.value = true
             }
         }
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
     }
 
     fun toggleTorch() {
@@ -182,6 +197,7 @@ fun StudioScreen(viewModel: StudioViewModel = hiltViewModel()) {
     val isLive by viewModel.isLive.collectAsState()
     val healthStats by viewModel.healthStats.collectAsState()
     val torchEnabled by viewModel.cameraController.isTorchOn.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
@@ -329,7 +345,7 @@ fun StudioScreen(viewModel: StudioViewModel = hiltViewModel()) {
                         modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Chat, contentDescription = "Live Chat", tint = IosPurple, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Forum, contentDescription = "Live Chat", tint = IosPurple, modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -366,6 +382,35 @@ fun StudioScreen(viewModel: StudioViewModel = hiltViewModel()) {
                                 tint = if (isEditMode) Color.Black else IosLabelPrimary,
                                 modifier = Modifier.size(18.dp)
                             )
+                        }
+                    }
+                }
+            }
+
+            // Error banner if any
+            errorMessage?.let { error ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = IosRed.copy(alpha = 0.9f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { viewModel.clearError() }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

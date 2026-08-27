@@ -55,6 +55,7 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
     val bitrate by viewModel.bitrate.collectAsState()
     val fps by viewModel.fps.collectAsState()
     val isStreaming by viewModel.isStreaming.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     val healthStats by viewModel.healthStats.collectAsState()
     val captureMode by viewModel.captureMode.collectAsState()
     val installedApps by viewModel.installedApps.collectAsState()
@@ -78,8 +79,7 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             viewModel.viewModelScope.launch {
-                val activeDest = viewModel.destinationDao.getAllDestinations().firstOrNull()?.firstOrNull { it.isEnabled }
-                val targetUrl = activeDest?.let { "${it.rtmpUrl}/${it.streamKey}" } ?: "rtmp://example.com/live"
+                val targetUrl = viewModel.validateAndGetTargetUrl() ?: return@launch
 
                 val intent = Intent(context, ScreenCaptureService::class.java).apply {
                     action = ScreenCaptureService.ACTION_START
@@ -92,7 +92,6 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
                 } else {
                     context.startService(intent)
                 }
-                viewModel.setStreamingState(true)
 
                 // Start in-game floating HUD if overlay permission is granted
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M &&
@@ -183,7 +182,34 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Chat, contentDescription = "Live Chat", tint = IosPurple, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Forum, contentDescription = "Live Chat", tint = IosPurple, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+
+            // Error banner if any
+            errorMessage?.let { error ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = IosRed.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, IosRed.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = IosRed, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = IosRed,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { viewModel.clearError() }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = IosRed, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
@@ -371,35 +397,47 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
                 Spacer(Modifier.height(10.dp))
 
                 // Resolution Segment
-                Text("Разрешение", style = MaterialTheme.typography.bodySmall, color = IosLabelSecondary)
+                Text(
+                    text = if (isStreaming) "Разрешение (зафиксировано в эфире)" else "Разрешение",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isStreaming) IosLabelTertiary else IosLabelSecondary
+                )
                 Spacer(Modifier.height(6.dp))
                 IosSegmentedControl(
                     items = listOf("720p", "1080p", "1440p"),
                     selectedItem = resolution,
-                    onItemSelected = { viewModel.updateResolution(it) }
+                    onItemSelected = { if (!isStreaming) viewModel.updateResolution(it) }
                 )
 
                 Spacer(Modifier.height(14.dp))
 
                 // FPS Segment
-                Text("Частота кадров (FPS)", style = MaterialTheme.typography.bodySmall, color = IosLabelSecondary)
+                Text(
+                    text = if (isStreaming) "Частота кадров (зафиксировано в эфире)" else "Частота кадров (FPS)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isStreaming) IosLabelTertiary else IosLabelSecondary
+                )
                 Spacer(Modifier.height(6.dp))
                 IosSegmentedControl(
                     items = listOf(30, 60),
                     selectedItem = fps,
-                    onItemSelected = { viewModel.updateFps(it) },
+                    onItemSelected = { if (!isStreaming) viewModel.updateFps(it) },
                     itemLabel = { "$it FPS" }
                 )
 
                 Spacer(Modifier.height(14.dp))
 
-                // Bitrate Slider
+                // Bitrate Slider (Dynamic runtime bitrate adjustment)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Битрейт видео", style = MaterialTheme.typography.bodySmall, color = IosLabelSecondary)
+                    Text(
+                        text = if (isStreaming) "Битрейт видео (на лету)" else "Битрейт видео",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = IosLabelSecondary
+                    )
                     Text("${bitrate} kbps", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = IosBlue)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -424,16 +462,18 @@ fun GameStreamScreen(viewModel: GameStreamViewModel = hiltViewModel()) {
                             action = ScreenCaptureService.ACTION_STOP
                         }
                         context.startService(stopIntent)
-                        viewModel.setStreamingState(false)
                     } else {
-                        val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                        val captureIntent = if (android.os.Build.VERSION.SDK_INT >= 34) {
-                            val config = android.media.projection.MediaProjectionConfig.createConfigForUserChoice()
-                            mediaProjectionManager.createScreenCaptureIntent(config)
-                        } else {
-                            mediaProjectionManager.createScreenCaptureIntent()
+                        viewModel.viewModelScope.launch {
+                            val targetUrl = viewModel.validateAndGetTargetUrl() ?: return@launch
+                            val mediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                            val captureIntent = if (android.os.Build.VERSION.SDK_INT >= 34) {
+                                val config = android.media.projection.MediaProjectionConfig.createConfigForUserChoice()
+                                mediaProjectionManager.createScreenCaptureIntent(config)
+                            } else {
+                                mediaProjectionManager.createScreenCaptureIntent()
+                            }
+                            screenCaptureLauncher.launch(captureIntent)
                         }
-                        screenCaptureLauncher.launch(captureIntent)
                     }
                 },
                 height = 54.dp
