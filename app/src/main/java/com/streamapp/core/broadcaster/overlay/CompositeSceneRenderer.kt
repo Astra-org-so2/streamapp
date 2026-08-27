@@ -1,15 +1,7 @@
 package com.streamapp.core.broadcaster.overlay
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.Rect
-import android.graphics.RectF
-import android.graphics.Typeface
+import android.graphics.*
 import android.net.Uri
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -18,16 +10,10 @@ import com.streamapp.core.common.logger.AppLogger
 import com.streamapp.core.common.logger.LogCategory
 import com.streamapp.core.database.entity.LayerType
 import com.streamapp.core.database.entity.SceneLayerEntity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -41,6 +27,7 @@ class CompositeSceneRenderer(
     private val _layersFlow = MutableStateFlow<List<SceneLayerEntity>>(emptyList())
     private val webViews = mutableMapOf<String, WebView>()
     private val webViewSnapshots = ConcurrentHashMap<String, Bitmap>()
+    private val webViewLocks = ConcurrentHashMap<String, Any>()
     private val imageCache = ConcurrentHashMap<String, Bitmap>()
 
     private var renderJob: Job? = null
@@ -49,10 +36,11 @@ class CompositeSceneRenderer(
     private var targetWidth = 1920
     private var targetHeight = 1080
 
-    // Reusable Framebuffer to eliminate heap allocations and GC thrashing
-    private var reusableFramebuffer: Bitmap? = null
-    private var reusableCanvas: Canvas? = null
-    private val framebufferLock = Any()
+    // Double-buffered framebuffers to prevent tearing & concurrent GL texture access
+    private var backFramebuffer: Bitmap? = null
+    private var frontFramebuffer: Bitmap? = null
+    private var backCanvas: Canvas? = null
+    private val bufferSwapLock = Any()
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -79,13 +67,14 @@ class CompositeSceneRenderer(
         targetWidth = width
         targetHeight = height
 
-        synchronized(framebufferLock) {
-            reusableFramebuffer?.recycle()
-            reusableFramebuffer = null
-            reusableCanvas = null
+        synchronized(bufferSwapLock) {
+            backFramebuffer?.recycle()
+            frontFramebuffer?.recycle()
+            backFramebuffer = null
+            frontFramebuffer = null
+            backCanvas = null
         }
 
-        // Re-layout existing WebViews with new dimensions on Main thread
         scope.launch(Dispatchers.Main) {
             val layers = _layersFlow.value
             layers.filter { it.type == LayerType.WEB }.forEach { layer ->
@@ -102,14 +91,11 @@ class CompositeSceneRenderer(
         val visibleLayers = layers.filter { it.isVisible }
         _layersFlow.value = visibleLayers
 
-        // Preload and cache IMAGE layers
         scope.launch(Dispatchers.IO) {
             val imagePaths = visibleLayers.filter { it.type == LayerType.IMAGE }.map { it.content }.toSet()
-            // Evict unused images
             val unusedPaths = imageCache.keys.filter { !imagePaths.contains(it) }
             unusedPaths.forEach { imageCache.remove(it) }
 
-            // Preload new images
             imagePaths.forEach { path ->
                 if (!imageCache.containsKey(path)) {
                     val file = File(path)
@@ -127,19 +113,17 @@ class CompositeSceneRenderer(
             }
         }
 
-        // Manage WebViews on Main thread
         scope.launch(Dispatchers.Main) {
             val currentWebIds = visibleLayers.filter { it.type == LayerType.WEB }.map { it.id }.toSet()
 
-            // Remove old web views
             val toRemove = webViews.keys.filter { !currentWebIds.contains(it) }
             toRemove.forEach { id ->
                 webViews[id]?.destroy()
                 webViews.remove(id)
+                webViewLocks.remove(id)
                 webViewSnapshots.remove(id)?.recycle()
             }
 
-            // Create or update active web views
             visibleLayers.filter { it.type == LayerType.WEB }.forEach { layer ->
                 if (!webViews.containsKey(layer.id) && layer.content.isNotBlank()) {
                     if (isUrlAllowed(layer.content)) {
@@ -155,8 +139,9 @@ class CompositeSceneRenderer(
                         wv.layout(0, 0, w, h)
                         wv.loadUrl(layer.content)
                         webViews[layer.id] = wv
+                        webViewLocks[layer.id] = Any()
                     } else {
-                        AppLogger.w(LogCategory.UI, "Blocked potentially unsafe overlay URL: ${layer.content}")
+                        AppLogger.w(LogCategory.UI, "Blocked unsafe overlay URL: ${layer.content}")
                     }
                 }
             }
@@ -181,34 +166,37 @@ class CompositeSceneRenderer(
     fun startRendering(fps: Int = 30) {
         stopRendering()
 
-        // 1. Main-Thread WebView snapshot capture loop (throttled at ~20 FPS)
+        // 1. Main-Thread WebView snapshot capture loop (throttled at ~20 FPS) with lock protection
         webViewCaptureJob = scope.launch(Dispatchers.Main) {
             while (isActive) {
                 webViews.forEach { (id, wv) ->
                     if (wv.width > 0 && wv.height > 0) {
+                        val lock = webViewLocks.getOrPut(id) { Any() }
                         try {
                             val snapshot = webViewSnapshots.getOrPut(id) {
                                 Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
                             }
-                            val wvCanvas = Canvas(snapshot)
-                            wvCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                            wv.draw(wvCanvas)
+                            synchronized(lock) {
+                                val wvCanvas = Canvas(snapshot)
+                                wvCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                wv.draw(wvCanvas)
+                            }
                         } catch (e: Exception) {
-                            AppLogger.w(LogCategory.UI, "Error drawing WebView overlay: ${e.message}")
+                            AppLogger.w(LogCategory.UI, "Error capturing WebView snapshot: ${e.message}")
                         }
                     }
                 }
-                delay(50) // 20 FPS capture for web animations / alert widgets
+                delay(50)
             }
         }
 
-        // 2. Default-Thread zero-allocation composition loop
+        // 2. Default-Thread double-buffered composition loop
         renderJob = scope.launch(Dispatchers.Default) {
             val delayMs = 1000L / fps
             while (isActive) {
                 val layersSnapshot = _layersFlow.value
                 if (layersSnapshot.isNotEmpty()) {
-                    val frameBitmap = renderCompositeFrame(layersSnapshot)
+                    val frameBitmap = renderDoubleBufferedFrame(layersSnapshot)
                     _compositeBitmap.value = frameBitmap
                 } else {
                     _compositeBitmap.value = null
@@ -218,15 +206,16 @@ class CompositeSceneRenderer(
         }
     }
 
-    private fun renderCompositeFrame(layers: List<SceneLayerEntity>): Bitmap? {
-        return synchronized(framebufferLock) {
+    private fun renderDoubleBufferedFrame(layers: List<SceneLayerEntity>): Bitmap? {
+        return synchronized(bufferSwapLock) {
             try {
-                if (reusableFramebuffer == null || reusableFramebuffer?.isRecycled == true) {
-                    reusableFramebuffer = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-                    reusableCanvas = Canvas(reusableFramebuffer!!)
+                if (backFramebuffer == null || backFramebuffer?.isRecycled == true) {
+                    backFramebuffer = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                    frontFramebuffer = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                    backCanvas = Canvas(backFramebuffer!!)
                 }
 
-                val canvas = reusableCanvas ?: return null
+                val canvas = backCanvas ?: return null
                 canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
                 layers.forEach { layer ->
@@ -256,22 +245,32 @@ class CompositeSceneRenderer(
                             }
                         }
                         LayerType.WEB -> {
+                            val lock = webViewLocks[layer.id]
                             val wvBitmap = webViewSnapshots[layer.id]
-                            if (wvBitmap != null && !wvBitmap.isRecycled) {
-                                val srcRect = Rect(0, 0, wvBitmap.width, wvBitmap.height)
-                                val dstRect = RectF(x, y, x + w, y + h)
-                                canvas.drawBitmap(wvBitmap, srcRect, dstRect, null)
+                            if (wvBitmap != null && !wvBitmap.isRecycled && lock != null) {
+                                synchronized(lock) {
+                                    val srcRect = Rect(0, 0, wvBitmap.width, wvBitmap.height)
+                                    val dstRect = RectF(x, y, x + w, y + h)
+                                    canvas.drawBitmap(wvBitmap, srcRect, dstRect, null)
+                                }
                             }
                         }
                         LayerType.CAMERA_PIP -> {
-                            // Reserved for Camera PiP overlay frame
+                            // Reserved for PiP
                         }
                     }
                     canvas.restore()
                 }
-                reusableFramebuffer
+
+                // Swap front and back buffers safely
+                val temp = frontFramebuffer
+                frontFramebuffer = backFramebuffer
+                backFramebuffer = temp
+                backCanvas = Canvas(backFramebuffer!!)
+
+                frontFramebuffer
             } catch (e: Exception) {
-                AppLogger.e(LogCategory.UI, "Error rendering composite overlay frame", e)
+                AppLogger.e(LogCategory.UI, "Error in double-buffered frame composition", e)
                 null
             }
         }
@@ -292,12 +291,15 @@ class CompositeSceneRenderer(
             webViews.clear()
             webViewSnapshots.values.forEach { it.recycle() }
             webViewSnapshots.clear()
+            webViewLocks.clear()
         }
         imageCache.clear()
-        synchronized(framebufferLock) {
-            reusableFramebuffer?.recycle()
-            reusableFramebuffer = null
-            reusableCanvas = null
+        synchronized(bufferSwapLock) {
+            backFramebuffer?.recycle()
+            frontFramebuffer?.recycle()
+            backFramebuffer = null
+            frontFramebuffer = null
+            backCanvas = null
         }
     }
 }

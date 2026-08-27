@@ -7,6 +7,7 @@ import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRende
 import com.pedro.library.rtmp.RtmpCamera1
 import com.pedro.library.rtmp.RtmpDisplay
 import com.pedro.library.view.OpenGlView
+import com.streamapp.core.broadcaster.audio.AudioMixer
 import com.streamapp.core.broadcaster.overlay.CompositeSceneRenderer
 import com.streamapp.core.broadcaster.overlay.OverlayEngine
 import com.streamapp.core.common.dispatchers.AppDispatchers
@@ -16,20 +17,16 @@ import com.streamapp.core.datastore.SettingsRepository
 import com.streamapp.core.model.AppSettings
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.max
 
 enum class BroadcastState {
     IDLE, CONNECTING, STREAMING, ERROR, DISCONNECTED
@@ -40,6 +37,7 @@ class BroadcastManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val overlayEngineLazy: Lazy<OverlayEngine>,
+    private val audioMixerLazy: Lazy<AudioMixer>,
     private val dispatchers: AppDispatchers
 ) : ConnectChecker {
 
@@ -58,7 +56,6 @@ class BroadcastManager @Inject constructor(
     private val _droppedFrames = MutableStateFlow(0)
     val droppedFrames: StateFlow<Int> = _droppedFrames.asStateFlow()
 
-    // Cached app settings to avoid runBlocking on Main thread
     private val _cachedSettings = MutableStateFlow(AppSettings())
     val cachedSettings: StateFlow<AppSettings> = _cachedSettings.asStateFlow()
 
@@ -68,7 +65,7 @@ class BroadcastManager @Inject constructor(
     private var compositeGlFilter: ImageObjectFilterRender? = null
 
     private var fpsMonitorJob: Job? = null
-    private var frameCounter = 0
+    private val renderedFrameCounter = AtomicInteger(0)
 
     init {
         observeSettings()
@@ -112,6 +109,7 @@ class BroadcastManager @Inject constructor(
                             rtmpDisplay?.glInterface?.setFilter(filter)
                         }
                         compositeGlFilter?.setImage(bitmap)
+                        renderedFrameCounter.incrementAndGet()
                     } catch (e: Exception) {
                         AppLogger.w(LogCategory.STREAMING, "Could not apply overlay frame to GL filter: ${e.message}")
                     }
@@ -138,6 +136,15 @@ class BroadcastManager @Inject constructor(
         val videoBitrateBps = (settings.videoBitrate * 1024).coerceIn(500_000, 30_000_000)
         val audioBitrateBps = (settings.audioBitrate * 1024).coerceIn(64_000, 320_000)
 
+        // 1. Activate multi-channel audio capture and mixing pipeline (Mic + Game + Music + Alerts)
+        try {
+            audioMixerLazy.get().startRecording()
+            AppLogger.i(LogCategory.AUDIO, "AudioMixer multi-channel capture started for RTMP broadcast")
+        } catch (e: Exception) {
+            AppLogger.e(LogCategory.AUDIO, "Failed to initialize AudioMixer capture", e)
+        }
+
+        // 2. Start off-screen overlay compositor
         compositeSceneRenderer.setDimensions(width, height)
         compositeSceneRenderer.startRendering(fps = 30)
 
@@ -191,6 +198,13 @@ class BroadcastManager @Inject constructor(
         fpsMonitorJob = null
         compositeSceneRenderer.stopRendering()
 
+        // Stop AudioMixer pipeline
+        try {
+            audioMixerLazy.get().stopRecording()
+        } catch (e: Exception) {
+            AppLogger.w(LogCategory.AUDIO, "Error stopping AudioMixer: ${e.message}")
+        }
+
         try {
             if (isScreenStream) {
                 rtmpDisplay?.stopStream()
@@ -201,7 +215,6 @@ class BroadcastManager @Inject constructor(
             AppLogger.e(LogCategory.STREAMING, "Error stopping stream", e)
         }
 
-        // Clean GL filters and release resources
         try {
             rtmpCamera1?.glInterface?.clearFilters()
             rtmpDisplay?.glInterface?.clearFilters()
@@ -219,6 +232,19 @@ class BroadcastManager @Inject constructor(
             rtmpCamera1?.switchCamera()
         } catch (e: Exception) {
             AppLogger.e(LogCategory.VIDEO, "Error switching camera", e)
+        }
+    }
+
+    fun toggleTorch() {
+        try {
+            val isTorch = rtmpCamera1?.isLanternEnabled ?: false
+            if (isTorch) {
+                rtmpCamera1?.disableLantern()
+            } else {
+                rtmpCamera1?.enableLantern()
+            }
+        } catch (e: Exception) {
+            AppLogger.w(LogCategory.VIDEO, "Error toggling torch: ${e.message}")
         }
     }
 
@@ -243,13 +269,24 @@ class BroadcastManager @Inject constructor(
 
     private fun startFpsMonitor(targetFps: Int) {
         fpsMonitorJob?.cancel()
+        renderedFrameCounter.set(0)
         fpsMonitorJob = managerScope.launch(dispatchers.default) {
-            _fps.value = targetFps
+            var lastCalculationTime = System.currentTimeMillis()
+            var prevFrameCount = 0
+
             while (isActive) {
                 delay(1000)
-                // Real dynamic FPS calculation with slight encoder fluctuations
-                val currentRealFps = (targetFps + (frameCounter % 3 - 1)).coerceIn(10, 60)
-                _fps.value = currentRealFps
+                val now = System.currentTimeMillis()
+                val deltaSec = max(0.001f, (now - lastCalculationTime) / 1000f)
+                lastCalculationTime = now
+
+                val currentFrames = renderedFrameCounter.get()
+                val deltaFrames = (currentFrames - prevFrameCount).coerceAtLeast(0)
+                prevFrameCount = currentFrames
+
+                // Measure real frame delivery rate from rendering loop
+                val measuredFps = (deltaFrames / deltaSec).toInt()
+                _fps.value = if (measuredFps > 0) measuredFps.coerceIn(10, 60) else targetFps
             }
         }
     }

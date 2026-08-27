@@ -1,14 +1,17 @@
 package com.streamapp.core.broadcaster.camera
 
 import android.content.Context
-import android.util.Log
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Observer
+import com.streamapp.core.common.logger.AppLogger
+import com.streamapp.core.common.logger.LogCategory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,9 +26,9 @@ import kotlin.coroutines.suspendCoroutine
 class CameraController @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
+    private var currentZoomObserver: Observer<ZoomState>? = null
 
     private var currentLensFacing = CameraSelector.LENS_FACING_BACK
 
@@ -54,6 +57,9 @@ class CameraController @Inject constructor(
     private fun bindCameraUseCases(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
         val cameraProvider = cameraProvider ?: return
 
+        // Clean up previous observers before re-binding to prevent memory leaks
+        removeZoomObserver()
+
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(previewView.surfaceProvider)
         }
@@ -69,9 +75,10 @@ class CameraController @Inject constructor(
                 cameraSelector,
                 preview
             )
-            observeCameraState()
+            observeCameraState(lifecycleOwner)
+            AppLogger.i(LogCategory.VIDEO, "Camera use cases bound successfully (lens: $currentLensFacing)")
         } catch (e: Exception) {
-            Log.e("CameraController", "Use case binding failed", e)
+            AppLogger.e(LogCategory.VIDEO, "Use case binding failed", e)
         }
     }
 
@@ -90,6 +97,7 @@ class CameraController @Inject constructor(
             val isCurrentlyOn = _isTorchOn.value
             camera.cameraControl.enableTorch(!isCurrentlyOn)
             _isTorchOn.value = !isCurrentlyOn
+            AppLogger.d(LogCategory.VIDEO, "Torch toggled to: ${!isCurrentlyOn}")
         }
     }
 
@@ -98,9 +106,24 @@ class CameraController @Inject constructor(
         _zoomRatio.value = ratio
     }
 
-    private fun observeCameraState() {
-        camera?.cameraInfo?.zoomState?.observeForever { zoomState ->
+    private fun observeCameraState(lifecycleOwner: LifecycleOwner) {
+        val observer = Observer<ZoomState> { zoomState ->
             _zoomRatio.value = zoomState.zoomRatio
         }
+        currentZoomObserver = observer
+        camera?.cameraInfo?.zoomState?.observe(lifecycleOwner, observer)
+    }
+
+    private fun removeZoomObserver() {
+        currentZoomObserver?.let { observer ->
+            camera?.cameraInfo?.zoomState?.removeObserver(observer)
+        }
+        currentZoomObserver = null
+    }
+
+    fun release() {
+        removeZoomObserver()
+        cameraProvider?.unbindAll()
+        camera = null
     }
 }

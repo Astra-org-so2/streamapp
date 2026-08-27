@@ -94,43 +94,90 @@ class SettingsRepository @Inject constructor(
         )
     }
 
+    suspend fun mutateSettings(transform: (AppSettings) -> AppSettings) {
+        writeMutex.withLock {
+            dataStore.edit { prefs ->
+                val current = AppSettings(
+                    videoResolution = prefs[Keys.VIDEO_RESOLUTION] ?: "1080p",
+                    videoBitrate = prefs[Keys.VIDEO_BITRATE] ?: 6000,
+                    videoFps = prefs[Keys.VIDEO_FPS] ?: 60,
+                    audioBitrate = prefs[Keys.AUDIO_BITRATE] ?: 160,
+                    touchHeatmapEnabled = prefs[Keys.TOUCH_HEATMAP] ?: false,
+                    autoClipEnabled = prefs[Keys.AUTO_CLIP] ?: false,
+                    chatOverlayEnabled = prefs[Keys.CHAT_OVERLAY] ?: true,
+                    adaptiveBitrateEnabled = prefs[Keys.ADAPTIVE_BITRATE] ?: true,
+                    noiseSuppressionEnabled = prefs[Keys.NOISE_SUPPRESSION] ?: true,
+                    isEchoCancellationEnabled = prefs[Keys.ECHO_CANCELLATION] ?: true,
+                    noiseGateThresholdDb = prefs[Keys.NOISE_GATE_THRESHOLD] ?: -40,
+                    noiseSuppressionLevel = prefs[Keys.NOISE_SUPPRESSION_LEVEL] ?: "Студийный",
+                    backgroundBlurEnabled = prefs[Keys.BACKGROUND_BLUR] ?: false,
+                    greenScreenEnabled = prefs[Keys.GREEN_SCREEN] ?: false,
+                    localRecordingEnabled = prefs[Keys.LOCAL_RECORDING] ?: false,
+                    autoReconnectEnabled = prefs[Keys.AUTO_RECONNECT] ?: true,
+                    lowLatencyModeEnabled = prefs[Keys.LOW_LATENCY] ?: true,
+                    heatmapDecayTimeMs = prefs[Keys.HEATMAP_DECAY] ?: 1000L,
+                    autoClipDurationS = prefs[Keys.AUTO_CLIP_DURATION] ?: 30,
+                    privacyGuardBlurIntensity = prefs[Keys.PRIVACY_GUARD_BLUR] ?: 5f,
+                    micVolume = prefs[Keys.MIC_VOLUME] ?: 1.0f,
+                    gameVolume = prefs[Keys.GAME_VOLUME] ?: 1.0f,
+                    musicVolume = prefs[Keys.MUSIC_VOLUME] ?: 0.7f,
+                    alertsVolume = prefs[Keys.ALERTS_VOLUME] ?: 1.0f,
+                    masterVolume = prefs[Keys.MASTER_VOLUME] ?: 1.0f,
+                    isMicMuted = prefs[Keys.IS_MIC_MUTED] ?: false,
+                    isGameMuted = prefs[Keys.IS_GAME_MUTED] ?: false,
+                    isMusicMuted = prefs[Keys.IS_MUSIC_MUTED] ?: false,
+                    isAlertsMuted = prefs[Keys.IS_ALERTS_MUTED] ?: false,
+                    selectedAppPackage = prefs[Keys.SELECTED_APP_PACKAGE] ?: "",
+                    captureModeOrdinal = prefs[Keys.CAPTURE_MODE_ORDINAL] ?: 0,
+                    selectedMicDeviceId = prefs[Keys.SELECTED_MIC_DEVICE_ID] ?: -1
+                )
+                val updated = transform(current)
+                applySettingsToPrefs(prefs, updated)
+            }
+        }
+    }
+
     suspend fun updateSettings(settings: AppSettings) {
         writeMutex.withLock {
             dataStore.edit { prefs ->
-                prefs[Keys.VIDEO_RESOLUTION] = settings.videoResolution
-                prefs[Keys.VIDEO_BITRATE] = settings.videoBitrate
-                prefs[Keys.VIDEO_FPS] = settings.videoFps
-                prefs[Keys.AUDIO_BITRATE] = settings.audioBitrate
-                prefs[Keys.TOUCH_HEATMAP] = settings.touchHeatmapEnabled
-                prefs[Keys.AUTO_CLIP] = settings.autoClipEnabled
-                prefs[Keys.CHAT_OVERLAY] = settings.chatOverlayEnabled
-                prefs[Keys.ADAPTIVE_BITRATE] = settings.adaptiveBitrateEnabled
-                prefs[Keys.NOISE_SUPPRESSION] = settings.noiseSuppressionEnabled
-                prefs[Keys.ECHO_CANCELLATION] = settings.isEchoCancellationEnabled
-                prefs[Keys.NOISE_GATE_THRESHOLD] = settings.noiseGateThresholdDb
-                prefs[Keys.NOISE_SUPPRESSION_LEVEL] = settings.noiseSuppressionLevel
-                prefs[Keys.BACKGROUND_BLUR] = settings.backgroundBlurEnabled
-                prefs[Keys.GREEN_SCREEN] = settings.greenScreenEnabled
-                prefs[Keys.LOCAL_RECORDING] = settings.localRecordingEnabled
-                prefs[Keys.AUTO_RECONNECT] = settings.autoReconnectEnabled
-                prefs[Keys.LOW_LATENCY] = settings.lowLatencyModeEnabled
-                prefs[Keys.HEATMAP_DECAY] = settings.heatmapDecayTimeMs
-                prefs[Keys.AUTO_CLIP_DURATION] = settings.autoClipDurationS
-                prefs[Keys.PRIVACY_GUARD_BLUR] = settings.privacyGuardBlurIntensity
-                prefs[Keys.MIC_VOLUME] = settings.micVolume
-                prefs[Keys.GAME_VOLUME] = settings.gameVolume
-                prefs[Keys.MUSIC_VOLUME] = settings.musicVolume
-                prefs[Keys.ALERTS_VOLUME] = settings.alertsVolume
-                prefs[Keys.MASTER_VOLUME] = settings.masterVolume
-                prefs[Keys.IS_MIC_MUTED] = settings.isMicMuted
-                prefs[Keys.IS_GAME_MUTED] = settings.isGameMuted
-                prefs[Keys.IS_MUSIC_MUTED] = settings.isMusicMuted
-                prefs[Keys.IS_ALERTS_MUTED] = settings.isAlertsMuted
-                prefs[Keys.SELECTED_APP_PACKAGE] = settings.selectedAppPackage
-                prefs[Keys.CAPTURE_MODE_ORDINAL] = settings.captureModeOrdinal
-                prefs[Keys.SELECTED_MIC_DEVICE_ID] = settings.selectedMicDeviceId
+                applySettingsToPrefs(prefs, settings)
             }
         }
+    }
+
+    private fun applySettingsToPrefs(prefs: MutablePreferences, settings: AppSettings) {
+        prefs[Keys.VIDEO_RESOLUTION] = settings.videoResolution
+        prefs[Keys.VIDEO_BITRATE] = settings.videoBitrate
+        prefs[Keys.VIDEO_FPS] = settings.videoFps
+        prefs[Keys.AUDIO_BITRATE] = settings.audioBitrate
+        prefs[Keys.TOUCH_HEATMAP] = settings.touchHeatmapEnabled
+        prefs[Keys.AUTO_CLIP] = settings.autoClipEnabled
+        prefs[Keys.CHAT_OVERLAY] = settings.chatOverlayEnabled
+        prefs[Keys.ADAPTIVE_BITRATE] = settings.adaptiveBitrateEnabled
+        prefs[Keys.NOISE_SUPPRESSION] = settings.noiseSuppressionEnabled
+        prefs[Keys.ECHO_CANCELLATION] = settings.isEchoCancellationEnabled
+        prefs[Keys.NOISE_GATE_THRESHOLD] = settings.noiseGateThresholdDb
+        prefs[Keys.NOISE_SUPPRESSION_LEVEL] = settings.noiseSuppressionLevel
+        prefs[Keys.BACKGROUND_BLUR] = settings.backgroundBlurEnabled
+        prefs[Keys.GREEN_SCREEN] = settings.greenScreenEnabled
+        prefs[Keys.LOCAL_RECORDING] = settings.localRecordingEnabled
+        prefs[Keys.AUTO_RECONNECT] = settings.autoReconnectEnabled
+        prefs[Keys.LOW_LATENCY] = settings.lowLatencyModeEnabled
+        prefs[Keys.HEATMAP_DECAY] = settings.heatmapDecayTimeMs
+        prefs[Keys.AUTO_CLIP_DURATION] = settings.autoClipDurationS
+        prefs[Keys.PRIVACY_GUARD_BLUR] = settings.privacyGuardBlurIntensity
+        prefs[Keys.MIC_VOLUME] = settings.micVolume
+        prefs[Keys.GAME_VOLUME] = settings.gameVolume
+        prefs[Keys.MUSIC_VOLUME] = settings.musicVolume
+        prefs[Keys.ALERTS_VOLUME] = settings.alertsVolume
+        prefs[Keys.MASTER_VOLUME] = settings.masterVolume
+        prefs[Keys.IS_MIC_MUTED] = settings.isMicMuted
+        prefs[Keys.IS_GAME_MUTED] = settings.isGameMuted
+        prefs[Keys.IS_MUSIC_MUTED] = settings.isMusicMuted
+        prefs[Keys.IS_ALERTS_MUTED] = settings.isAlertsMuted
+        prefs[Keys.SELECTED_APP_PACKAGE] = settings.selectedAppPackage
+        prefs[Keys.CAPTURE_MODE_ORDINAL] = settings.captureModeOrdinal
+        prefs[Keys.SELECTED_MIC_DEVICE_ID] = settings.selectedMicDeviceId
     }
 
     suspend fun updateVolumes(

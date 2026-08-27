@@ -90,8 +90,7 @@ class GameStreamViewModel @Inject constructor(
 
     private fun persistSettings() {
         viewModelScope.launch {
-            val current = settingsRepository.settings.firstOrNull() ?: return@launch
-            settingsRepository.updateSettings(
+            settingsRepository.mutateSettings { current ->
                 current.copy(
                     videoResolution = _resolution.value,
                     videoBitrate = _bitrate.value,
@@ -99,7 +98,7 @@ class GameStreamViewModel @Inject constructor(
                     captureModeOrdinal = if (_captureMode.value == ScreenCaptureMode.SPECIFIC_APP) 1 else 0,
                     selectedAppPackage = _selectedApp.value?.packageName ?: ""
                 )
-            )
+            }
         }
     }
 

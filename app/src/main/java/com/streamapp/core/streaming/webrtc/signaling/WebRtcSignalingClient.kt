@@ -66,6 +66,8 @@ class WebRtcSignalingClient @Inject constructor() {
         webSocket?.send(text)
     }
 
+    fun isConnected(): Boolean = webSocket != null
+
     fun disconnect() {
         AppLogger.i(LogCategory.NETWORK, "Disconnecting WebRTC Signaling channel")
         webSocket?.close(1000, "Client disconnect")

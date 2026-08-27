@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -19,6 +20,12 @@ class WebOverlayRenderer(
     private var webView: WebView? = null
     private var captureJob: Job? = null
 
+    // Reusable double-buffer to eliminate 30 Allocations/sec GC pressure
+    private var reusableBackBitmap: Bitmap? = null
+    private var reusableFrontBitmap: Bitmap? = null
+    private var reusableCanvas: Canvas? = null
+    private val bufferLock = Any()
+
     private val _bitmapFlow = MutableStateFlow<Bitmap?>(null)
     val bitmapFlow: StateFlow<Bitmap?> = _bitmapFlow.asStateFlow()
 
@@ -32,8 +39,17 @@ class WebOverlayRenderer(
                 webViewClient = WebViewClient()
             }
         }
-        
-        // Ensure WebView layout size is fixed to capture it offscreen
+
+        synchronized(bufferLock) {
+            reusableBackBitmap?.recycle()
+            reusableFrontBitmap?.recycle()
+            val w = width.coerceAtLeast(100)
+            val h = height.coerceAtLeast(50)
+            reusableBackBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            reusableFrontBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            reusableCanvas = Canvas(reusableBackBitmap!!)
+        }
+
         webView?.layout(0, 0, width, height)
         webView?.loadUrl(url)
     }
@@ -45,13 +61,23 @@ class WebOverlayRenderer(
             while (isActive) {
                 webView?.let { wv ->
                     if (wv.width > 0 && wv.height > 0) {
-                        try {
-                            val bitmap = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
-                            val canvas = Canvas(bitmap)
-                            wv.draw(canvas)
-                            _bitmapFlow.value = bitmap
-                        } catch (e: Exception) {
-                            // Ignore capture errors
+                        synchronized(bufferLock) {
+                            try {
+                                val canvas = reusableCanvas
+                                if (canvas != null && reusableBackBitmap != null && reusableFrontBitmap != null) {
+                                    canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                    wv.draw(canvas)
+
+                                    // Copy into front buffer
+                                    val frontCanvas = Canvas(reusableFrontBitmap!!)
+                                    frontCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                    frontCanvas.drawBitmap(reusableBackBitmap!!, 0f, 0f, null)
+
+                                    _bitmapFlow.value = reusableFrontBitmap
+                                }
+                            } catch (e: Exception) {
+                                // Ignore capture transient errors
+                            }
                         }
                     }
                 }
@@ -63,11 +89,19 @@ class WebOverlayRenderer(
     fun stopCapturing() {
         captureJob?.cancel()
         captureJob = null
+        _bitmapFlow.value = null
     }
 
     fun release() {
         stopCapturing()
         webView?.destroy()
         webView = null
+        synchronized(bufferLock) {
+            reusableBackBitmap?.recycle()
+            reusableFrontBitmap?.recycle()
+            reusableBackBitmap = null
+            reusableFrontBitmap = null
+            reusableCanvas = null
+        }
     }
 }

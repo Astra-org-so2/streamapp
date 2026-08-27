@@ -136,7 +136,10 @@ fun VirtualThumbstick(
     opacity: Float = 0.65f
 ) {
     var thumbOffset by remember { mutableStateOf(Offset.Zero) }
-    val maxRadius = (size.value * 1.5f)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val outerRadiusPx = with(density) { (size / 2f).toPx() }
+    val thumbRadiusPx = with(density) { (size * 0.45f / 2f).toPx() }
+    val maxRadiusPx = (outerRadiusPx - thumbRadiusPx).coerceAtLeast(1f)
 
     Box(
         modifier = modifier
@@ -144,7 +147,7 @@ fun VirtualThumbstick(
             .clip(CircleShape)
             .background(SurfaceDark.copy(alpha = opacity * 0.7f))
             .border(2.dp, AccentCyan.copy(alpha = opacity * 0.8f), CircleShape)
-            .pointerInput(Unit) {
+            .pointerInput(maxRadiusPx) {
                 detectDragGestures(
                     onDragStart = {},
                     onDragEnd = {
@@ -159,7 +162,7 @@ fun VirtualThumbstick(
                         change.consume()
                         val newOffset = thumbOffset + dragAmount
                         val distance = sqrt(newOffset.x * newOffset.x + newOffset.y * newOffset.y)
-                        val clampedDistance = min(distance, maxRadius)
+                        val clampedDistance = min(distance, maxRadiusPx)
                         val angle = atan2(newOffset.y, newOffset.x)
 
                         thumbOffset = Offset(
@@ -167,8 +170,8 @@ fun VirtualThumbstick(
                             clampedDistance * sin(angle)
                         )
 
-                        val normalizedX = (thumbOffset.x / maxRadius).coerceIn(-1f, 1f)
-                        val normalizedY = (thumbOffset.y / maxRadius).coerceIn(-1f, 1f)
+                        val normalizedX = (thumbOffset.x / maxRadiusPx).coerceIn(-1f, 1f)
+                        val normalizedY = (thumbOffset.y / maxRadiusPx).coerceIn(-1f, 1f)
                         onAxisChanged(normalizedX, normalizedY)
                     }
                 )

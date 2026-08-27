@@ -1,7 +1,5 @@
 package com.streamapp.core.streaming.webrtc.input
 
-import com.streamapp.core.common.logger.AppLogger
-import com.streamapp.core.common.logger.LogCategory
 import com.streamapp.core.input.model.GamepadAxisType
 import com.streamapp.core.input.model.GamepadButtonType
 import com.streamapp.core.input.model.MouseButtonType
@@ -13,7 +11,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * High-performance, zero-allocation binary protocol serializer for WebRTC DataChannel input events.
+ * High-performance binary protocol serializer for WebRTC DataChannel input events.
+ * Sized with dynamic capacity to safely accommodate large text inputs without BufferOverflowException.
+ *
  * Packet format:
  * [1 Byte EventType] [2 Bytes SequenceID] [Payload Bytes]
  */
@@ -21,7 +21,8 @@ import javax.inject.Singleton
 class WebRtcInputChannel @Inject constructor() {
 
     private var sequenceId: Short = 0
-    private val buffer = ByteBuffer.allocateDirect(64).order(ByteOrder.LITTLE_ENDIAN)
+    private var buffer = ByteBuffer.allocateDirect(1024).order(ByteOrder.LITTLE_ENDIAN)
+    private val bufferLock = Any()
 
     companion object {
         const val TYPE_TOUCH: Byte = 0x01
@@ -32,10 +33,19 @@ class WebRtcInputChannel @Inject constructor() {
         const val TYPE_GAMEPAD_AXIS: Byte = 0x06
         const val TYPE_KEYBOARD_KEY: Byte = 0x07
         const val TYPE_TEXT_INPUT: Byte = 0x08
+        const val MAX_TEXT_BYTES: Int = 800
     }
 
-    @Synchronized
-    fun encodeEvent(event: NormalizedInputEvent): ByteBuffer {
+    fun encodeEvent(event: NormalizedInputEvent): ByteBuffer = synchronized(bufferLock) {
+        // Ensure buffer has sufficient capacity for text or variable payloads
+        if (event is NormalizedInputEvent.TextInput) {
+            val textBytes = event.text.toByteArray(Charsets.UTF_8).take(MAX_TEXT_BYTES).toByteArray()
+            val requiredCapacity = textBytes.size + 16
+            if (buffer.capacity() < requiredCapacity) {
+                buffer = ByteBuffer.allocateDirect(requiredCapacity * 2).order(ByteOrder.LITTLE_ENDIAN)
+            }
+        }
+
         buffer.clear()
         sequenceId++
 
@@ -88,7 +98,7 @@ class WebRtcInputChannel @Inject constructor() {
                 buffer.putInt(event.modifiers)
             }
             is NormalizedInputEvent.TextInput -> {
-                val bytes = event.text.toByteArray(Charsets.UTF_8)
+                val bytes = event.text.toByteArray(Charsets.UTF_8).take(MAX_TEXT_BYTES).toByteArray()
                 buffer.put(TYPE_TEXT_INPUT)
                 buffer.putShort(sequenceId)
                 buffer.putShort(bytes.size.toShort())
