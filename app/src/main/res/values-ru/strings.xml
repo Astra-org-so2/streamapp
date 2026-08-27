@@ -1,0 +1,101 @@
+<resources>
+    <string name="app_name">StreamApp</string>
+    
+    <!-- Navigation -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_library">Библиотека</string>
+    <string name="nav_servers">Серверы</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="nav_profile">Профиль</string>
+
+    <!-- Home -->
+    <string name="home_greeting_evening">Добрый вечер</string>
+    <string name="home_greeting_day">Добрый день</string>
+    <string name="home_greeting_morning">Доброе утро</string>
+    <string name="home_hero_play">Играть сейчас</string>
+    <string name="home_continue_playing">Продолжить игру</string>
+    <string name="home_recently_played">Недавно запущенные</string>
+    <string name="home_favorites">Избранное</string>
+    <string name="home_available_servers">Доступные серверы</string>
+    <string name="home_active_server">Активный сервер</string>
+    <string name="home_no_active_server">Сервер не подключён</string>
+
+    <!-- Library -->
+    <string name="library_title">Библиотека</string>
+    <string name="library_search_placeholder">Поиск игр, приложений, утилит…</string>
+    <string name="library_filter_all">Все</string>
+    <string name="library_filter_games">Игры</string>
+    <string name="library_filter_apps">Приложения</string>
+    <string name="library_filter_favorites">Избранное</string>
+    <string name="library_filter_recent">Недавние</string>
+    <string name="library_empty_title">Стримы не найдены</string>
+    <string name="library_empty_description">Попробуйте изменить поисковый запрос или фильтр</string>
+
+    <!-- Servers -->
+    <string name="servers_title">Управление серверами</string>
+    <string name="servers_add_button">Добавить сервер</string>
+    <string name="servers_edit_title">Редактирование сервера</string>
+    <string name="servers_name_label">Имя сервера</string>
+    <string name="servers_host_label">Хост / IP-адрес</string>
+    <string name="servers_port_label">Порт</string>
+    <string name="servers_protocol_label">Протокол</string>
+    <string name="servers_auth_label">Аутентификация</string>
+    <string name="servers_test_connection">Проверить соединение</string>
+    <string name="servers_set_default">Использовать по умолчанию</string>
+    <string name="servers_delete">Удалить сервер</string>
+    <string name="servers_delete_confirm">Вы уверены, что хотите удалить этот сервер?</string>
+    <string name="servers_status_online">В сети</string>
+    <string name="servers_status_offline">Не в сети</string>
+    <string name="servers_status_busy">Занят</string>
+    <string name="servers_status_unreachable">Недоступен</string>
+
+    <!-- Latency -->
+    <string name="latency_excellent">Отлично</string>
+    <string name="latency_good">Хорошо</string>
+    <string name="latency_average">Средне</string>
+    <string name="latency_poor">Плохо</string>
+    <string name="latency_offline">Офлайн</string>
+
+    <!-- Stream -->
+    <string name="stream_connecting">Подключение к серверу…</string>
+    <string name="stream_negotiating">Согласование параметров сессии…</string>
+    <string name="stream_connected">Подключено</string>
+    <string name="stream_reconnecting">Переподключение (%1$d/%2$d)…</string>
+    <string name="stream_connection_lost">Соединение потеряно</string>
+    <string name="stream_unable_to_reconnect">Не удалось восстановить связь с хостом</string>
+    <string name="stream_btn_retry">Повторить</string>
+    <string name="stream_btn_cancel">Отмена</string>
+    <string name="stream_btn_disconnect">Отключиться</string>
+    <string name="stream_gamepad_toggle">Виртуальный геймпад</string>
+    <string name="stream_keyboard_toggle">Клавиатура</string>
+    <string name="stream_stats_toggle">Метрики производительности</string>
+    <string name="stream_mute_toggle">Отключить звук</string>
+    <string name="stream_settings_title">Параметры стрима</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_section_streaming">Качество стрима</string>
+    <string name="settings_section_controls">Управление и геймпад</string>
+    <string name="settings_section_network">Сеть и сигналинг</string>
+    <string name="settings_section_appearance">Внешний вид и тема</string>
+    <string name="settings_section_general">Общие</string>
+    <string name="settings_resolution">Разрешение</string>
+    <string name="settings_fps">Частота кадров (FPS)</string>
+    <string name="settings_bitrate">Макс. битрейт</string>
+    <string name="settings_codec">Видеокодек</string>
+    <string name="settings_hw_decoding">Аппаратное декодирование</string>
+    <string name="settings_low_latency">Режим ультранизкой задержки</string>
+    <string name="settings_gamepad_layout">Настройка кнопок геймпада</string>
+    <string name="settings_haptic_feedback">Тактильная виброотдача</string>
+    <string name="settings_theme_accent">Цветовой акцент</string>
+    <string name="settings_language">Язык интерфейса</string>
+
+    <!-- Common Actions -->
+    <string name="action_save">Сохранить</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_delete">Удалить</string>
+    <string name="action_apply">Применить</string>
+    <string name="action_back">Назад</string>
+    <string name="action_refresh">Обновить</string>
+    <string name="action_close">Закрыть</string>
+</resources>

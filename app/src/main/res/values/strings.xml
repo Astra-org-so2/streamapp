@@ -1,0 +1,101 @@
+<resources>
+    <string name="app_name">StreamApp</string>
+    
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_servers">Servers</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Home -->
+    <string name="home_greeting_evening">Good evening</string>
+    <string name="home_greeting_day">Good afternoon</string>
+    <string name="home_greeting_morning">Good morning</string>
+    <string name="home_hero_play">Play Now</string>
+    <string name="home_continue_playing">Continue Playing</string>
+    <string name="home_recently_played">Recently Played</string>
+    <string name="home_favorites">Favorites</string>
+    <string name="home_available_servers">Available Servers</string>
+    <string name="home_active_server">Active Server</string>
+    <string name="home_no_active_server">No Server Connected</string>
+
+    <!-- Library -->
+    <string name="library_title">Library</string>
+    <string name="library_search_placeholder">Search games, apps, tools…</string>
+    <string name="library_filter_all">All</string>
+    <string name="library_filter_games">Games</string>
+    <string name="library_filter_apps">Apps</string>
+    <string name="library_filter_favorites">Favorites</string>
+    <string name="library_filter_recent">Recent</string>
+    <string name="library_empty_title">No streams found</string>
+    <string name="library_empty_description">Try changing your search query or filter</string>
+
+    <!-- Servers -->
+    <string name="servers_title">Server Management</string>
+    <string name="servers_add_button">Add Server</string>
+    <string name="servers_edit_title">Edit Server</string>
+    <string name="servers_name_label">Server Name</string>
+    <string name="servers_host_label">Host / IP Address</string>
+    <string name="servers_port_label">Port</string>
+    <string name="servers_protocol_label">Protocol</string>
+    <string name="servers_auth_label">Authentication</string>
+    <string name="servers_test_connection">Test Connection</string>
+    <string name="servers_set_default">Set as Default</string>
+    <string name="servers_delete">Delete Server</string>
+    <string name="servers_delete_confirm">Are you sure you want to delete this server?</string>
+    <string name="servers_status_online">Online</string>
+    <string name="servers_status_offline">Offline</string>
+    <string name="servers_status_busy">Busy</string>
+    <string name="servers_status_unreachable">Unreachable</string>
+
+    <!-- Latency -->
+    <string name="latency_excellent">Excellent</string>
+    <string name="latency_good">Good</string>
+    <string name="latency_average">Average</string>
+    <string name="latency_poor">Poor</string>
+    <string name="latency_offline">Offline</string>
+
+    <!-- Stream -->
+    <string name="stream_connecting">Connecting to server…</string>
+    <string name="stream_negotiating">Negotiating stream session…</string>
+    <string name="stream_connected">Connected</string>
+    <string name="stream_reconnecting">Reconnecting (%1$d/%2$d)…</string>
+    <string name="stream_connection_lost">Connection Lost</string>
+    <string name="stream_unable_to_reconnect">Unable to reconnect to host</string>
+    <string name="stream_btn_retry">Retry</string>
+    <string name="stream_btn_cancel">Cancel</string>
+    <string name="stream_btn_disconnect">Disconnect</string>
+    <string name="stream_gamepad_toggle">Virtual Gamepad</string>
+    <string name="stream_keyboard_toggle">Keyboard</string>
+    <string name="stream_stats_toggle">Performance Stats</string>
+    <string name="stream_mute_toggle">Mute Audio</string>
+    <string name="stream_settings_title">In-Stream Settings</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_streaming">Streaming Quality</string>
+    <string name="settings_section_controls">Controls &amp; Gamepad</string>
+    <string name="settings_section_network">Network &amp; Signaling</string>
+    <string name="settings_section_appearance">Appearance &amp; Theme</string>
+    <string name="settings_section_general">General</string>
+    <string name="settings_resolution">Resolution</string>
+    <string name="settings_fps">Target Frame Rate</string>
+    <string name="settings_bitrate">Max Bitrate</string>
+    <string name="settings_codec">Video Codec</string>
+    <string name="settings_hw_decoding">Hardware Accelerated Decoding</string>
+    <string name="settings_low_latency">Ultra-Low Latency Mode</string>
+    <string name="settings_gamepad_layout">Customize Gamepad Layout</string>
+    <string name="settings_haptic_feedback">Haptic Vibration</string>
+    <string name="settings_theme_accent">Accent Color</string>
+    <string name="settings_language">Language</string>
+
+    <!-- Common Actions -->
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_back">Back</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_close">Close</string>
+</resources>
