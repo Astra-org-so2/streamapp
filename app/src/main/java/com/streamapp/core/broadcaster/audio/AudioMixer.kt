@@ -49,6 +49,13 @@ class AudioMixer @Inject constructor(
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
+    // Live Mic VU Telemetry during recording
+    private val _micLevel = MutableStateFlow(0f)
+    val micLevel: StateFlow<Float> = _micLevel.asStateFlow()
+
+    private val _micDb = MutableStateFlow(-60)
+    val micDb: StateFlow<Int> = _micDb.asStateFlow()
+
     // Real-time Mixed PCM Output Flow (16-bit PCM Little Endian)
     private val _mixedPcmFlow = MutableSharedFlow<ByteArray>(extraBufferCapacity = 64)
     val mixedPcmFlow: SharedFlow<ByteArray> = _mixedPcmFlow.asSharedFlow()
@@ -66,6 +73,9 @@ class AudioMixer @Inject constructor(
     var isMicMuted = false
     var isGameMuted = false
     var isMusicMuted = false
+
+    // Hardware routing
+    var preferredDevice: android.media.AudioDeviceInfo? = null
 
     // DSP Ducking
     var isAudioDuckingEnabled = true
@@ -121,6 +131,12 @@ class AudioMixer @Inject constructor(
                     return false
                 }
 
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    preferredDevice?.let { target ->
+                        record.preferredDevice = target
+                    }
+                }
+
                 voiceCleaner.applyAudioEffects(record.audioSessionId)
                 record.startRecording()
                 audioRecord = record
@@ -148,7 +164,7 @@ class AudioMixer @Inject constructor(
                 val readSamples = record.read(micShortBuffer, 0, SAMPLES_PER_FRAME)
                 if (readSamples <= 0) continue
 
-                // 1. Calculate Mic RMS for Voice Activity / Ducking
+                // 1. Calculate Mic RMS for Voice Activity / Ducking / VU Telemetry
                 var sumSquare = 0.0
                 for (i in 0 until readSamples) {
                     sumSquare += (micShortBuffer[i] * micShortBuffer[i]).toDouble()
@@ -156,6 +172,11 @@ class AudioMixer @Inject constructor(
                 val micRms = sqrt(sumSquare / readSamples).toFloat()
                 val isSpeaking = isAudioDuckingEnabled && !isMicMuted && (micRms > duckingThreshold)
                 val currentDucking = if (isSpeaking) duckingFactor else 1.0f
+
+                val normalized = (micRms / 32767.0).toFloat().coerceIn(0f, 1f)
+                val db = if (micRms > 1.0) (20 * kotlin.math.log10(micRms / 32767.0)).toInt().coerceIn(-60, 0) else -60
+                _micLevel.value = normalized
+                _micDb.value = db
 
                 // 2. Poll auxiliary channels
                 val gamePcm = gameAudioQueue.poll()

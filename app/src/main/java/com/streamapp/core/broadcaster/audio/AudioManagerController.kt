@@ -31,7 +31,8 @@ class AudioManagerController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val audioTrackDao: AudioTrackDao,
     private val settingsRepository: SettingsRepository,
-    val microphoneController: MicrophoneController
+    val microphoneController: MicrophoneController,
+    val audioMixer: AudioMixer
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var mediaPlayer: MediaPlayer? = null
@@ -83,18 +84,33 @@ class AudioManagerController @Inject constructor(
     val isLooping: StateFlow<Boolean> = _isLooping.asStateFlow()
 
     init {
+        // Observe preferred microphone device changes
+        scope.launch {
+            microphoneController.selectedDevice.collect {
+                audioMixer.preferredDevice = microphoneController.getPreferredAudioDeviceInfo()
+            }
+        }
+
         // Load initial persisted volume levels from DataStore
         scope.launch {
             val s = settingsRepository.settings.firstOrNull()
             if (s != null) {
                 _micVolume.value = s.micVolume
+                audioMixer.micVolume = s.micVolume
                 _gameVolume.value = s.gameVolume
+                audioMixer.gameVolume = s.gameVolume
                 _musicVolume.value = s.musicVolume
+                audioMixer.musicVolume = s.musicVolume
                 _alertsVolume.value = s.alertsVolume
                 _masterVolume.value = s.masterVolume
+                audioMixer.masterVolume = s.masterVolume
+
                 _isMicMuted.value = s.isMicMuted
+                audioMixer.isMicMuted = s.isMicMuted
                 _isGameMuted.value = s.isGameMuted
+                audioMixer.isGameMuted = s.isGameMuted
                 _isMusicMuted.value = s.isMusicMuted
+                audioMixer.isMusicMuted = s.isMusicMuted
                 _isAlertsMuted.value = s.isAlertsMuted
             }
         }
@@ -157,6 +173,7 @@ class AudioManagerController @Inject constructor(
 
     fun toggleAudioDucking() {
         _isAudioDuckingEnabled.value = !_isAudioDuckingEnabled.value
+        audioMixer.isAudioDuckingEnabled = _isAudioDuckingEnabled.value
         if (!_isAudioDuckingEnabled.value) {
             duckingMultiplier = 1.0f
             applyMusicPlayerVolume()
@@ -165,32 +182,38 @@ class AudioManagerController @Inject constructor(
 
     fun setMicVolume(vol: Float) {
         _micVolume.value = vol.coerceIn(0.0f, 2.0f)
+        audioMixer.micVolume = _micVolume.value
         persistSettings()
     }
 
     fun toggleMicMute() {
         _isMicMuted.value = !_isMicMuted.value
+        audioMixer.isMicMuted = _isMicMuted.value
         persistSettings()
     }
 
     fun setGameVolume(vol: Float) {
         _gameVolume.value = vol.coerceIn(0.0f, 1.0f)
+        audioMixer.gameVolume = _gameVolume.value
         persistSettings()
     }
 
     fun toggleGameMute() {
         _isGameMuted.value = !_isGameMuted.value
+        audioMixer.isGameMuted = _isGameMuted.value
         persistSettings()
     }
 
     fun setMusicVolume(vol: Float) {
         _musicVolume.value = vol.coerceIn(0.0f, 1.0f)
+        audioMixer.musicVolume = _musicVolume.value
         applyMusicPlayerVolume()
         persistSettings()
     }
 
     fun toggleMusicMute() {
         _isMusicMuted.value = !_isMusicMuted.value
+        audioMixer.isMusicMuted = _isMusicMuted.value
         applyMusicPlayerVolume()
         persistSettings()
     }
@@ -207,6 +230,7 @@ class AudioManagerController @Inject constructor(
 
     fun setMasterVolume(vol: Float) {
         _masterVolume.value = vol.coerceIn(0.0f, 1.0f)
+        audioMixer.masterVolume = _masterVolume.value
         applyMusicPlayerVolume()
         persistSettings()
     }
