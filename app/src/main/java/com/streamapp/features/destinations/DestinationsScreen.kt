@@ -10,8 +10,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,11 +28,13 @@ import com.streamapp.core.database.entity.DestinationEntity
 import com.streamapp.core.designsystem.components.IosCard
 import com.streamapp.core.designsystem.components.IosHeader
 import com.streamapp.core.designsystem.theme.*
+import com.streamapp.core.model.DestinationConnectionState
 import com.streamapp.core.model.Platform
 
 @Composable
 fun DestinationsScreen(viewModel: DestinationsViewModel = hiltViewModel()) {
     val destinations by viewModel.destinations.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -64,6 +68,35 @@ fun DestinationsScreen(viewModel: DestinationsViewModel = hiltViewModel()) {
 
         Spacer(Modifier.height(16.dp))
 
+        // Error banner if any
+        errorMessage?.let { error ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = IosRed.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, IosRed.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = IosRed, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = IosRed,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { viewModel.clearError() }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = IosRed, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
@@ -86,11 +119,11 @@ fun DestinationsScreen(viewModel: DestinationsViewModel = hiltViewModel()) {
                     }
                 }
             } else {
-                items(destinations, key = { it.id }) { dest ->
+                items(destinations, key = { it.entity.id }) { item ->
                     IosDestinationCard(
-                        destination = dest,
-                        onToggle = { viewModel.toggleDestination(dest) },
-                        onDelete = { viewModel.deleteDestination(dest) }
+                        item = item,
+                        onToggle = { viewModel.toggleDestination(item.entity) },
+                        onDelete = { viewModel.deleteDestination(item.entity) }
                     )
                 }
             }
@@ -110,10 +143,11 @@ fun DestinationsScreen(viewModel: DestinationsViewModel = hiltViewModel()) {
 
 @Composable
 private fun IosDestinationCard(
-    destination: DestinationEntity,
+    item: DestinationUiItem,
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val destination = item.entity
     val platformColor = when (destination.platform) {
         Platform.TWITCH -> Color(0xFF9146FF)
         Platform.YOUTUBE -> Color(0xFFFF0000)
@@ -122,8 +156,22 @@ private fun IosDestinationCard(
         Platform.CUSTOM -> IosBlue
     }
 
+    val (statusLabel, statusColor) = when (item.connectionState) {
+        DestinationConnectionState.LIVE -> "В ЭФИРЕ" to IosRed
+        DestinationConnectionState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..." to IosOrange
+        DestinationConnectionState.READY -> "ГОТОВ К ЭФИРУ" to IosGreen
+        DestinationConnectionState.ERROR -> "ОШИБКА" to IosRed
+        DestinationConnectionState.DISABLED -> "Отключен" to IosLabelSecondary
+    }
+
     IosCard(
-        border = if (destination.isEnabled) BorderStroke(1.dp, IosGreen.copy(alpha = 0.6f)) else BorderStroke(0.5.dp, IosGlassBorder)
+        border = when (item.connectionState) {
+            DestinationConnectionState.LIVE -> BorderStroke(1.5.dp, IosRed)
+            DestinationConnectionState.CONNECTING -> BorderStroke(1.dp, IosOrange)
+            DestinationConnectionState.READY -> BorderStroke(1.dp, IosGreen.copy(alpha = 0.6f))
+            DestinationConnectionState.ERROR -> BorderStroke(1.dp, IosRed.copy(alpha = 0.6f))
+            DestinationConnectionState.DISABLED -> BorderStroke(0.5.dp, IosGlassBorder)
+        }
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -157,9 +205,9 @@ private fun IosDestinationCard(
                         color = IosLabelPrimary
                     )
                     Text(
-                        text = "${destination.platform.name} • ${if (destination.isEnabled) "АКТИВЕН" else "Не активен"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (destination.isEnabled) IosGreen else IosLabelSecondary
+                        text = "${destination.platform.name} • $statusLabel",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = if (destination.isEnabled) FontWeight.SemiBold else FontWeight.Normal),
+                        color = statusColor
                     )
                 }
             }
@@ -199,6 +247,10 @@ fun AddDestinationDialog(
     var rtmpUrl by remember { mutableStateOf(Platform.TWITCH.defaultRtmpUrl) }
     var streamKey by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
+
+    val isFormValid = name.isNotBlank() &&
+            (rtmpUrl.trim().startsWith("rtmp://", ignoreCase = true) || rtmpUrl.trim().startsWith("rtmps://", ignoreCase = true)) &&
+            streamKey.trim().isNotBlank()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -269,7 +321,7 @@ fun AddDestinationDialog(
                 OutlinedTextField(
                     value = rtmpUrl,
                     onValueChange = { rtmpUrl = it },
-                    label = { Text("RTMP URL", color = IosLabelSecondary) },
+                    label = { Text("RTMP URL (напр. rtmp://live.twitch.tv/app)", color = IosLabelSecondary) },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -301,7 +353,7 @@ fun AddDestinationDialog(
         confirmButton = {
             Button(
                 onClick = { onAdd(platform, name, rtmpUrl, streamKey) },
-                enabled = name.isNotBlank() && rtmpUrl.isNotBlank() && streamKey.isNotBlank(),
+                enabled = isFormValid,
                 colors = ButtonDefaults.buttonColors(containerColor = IosBlue),
                 shape = RoundedCornerShape(12.dp)
             ) {
