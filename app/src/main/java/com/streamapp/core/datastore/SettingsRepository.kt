@@ -8,10 +8,15 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 @Singleton
 class SettingsRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>
 ) {
+    private val writeMutex = Mutex()
+
     private object Keys {
         val VIDEO_RESOLUTION = stringPreferencesKey("video_resolution")
         val VIDEO_BITRATE = intPreferencesKey("video_bitrate")
@@ -90,39 +95,67 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun updateSettings(settings: AppSettings) {
-        dataStore.edit { prefs ->
-            prefs[Keys.VIDEO_RESOLUTION] = settings.videoResolution
-            prefs[Keys.VIDEO_BITRATE] = settings.videoBitrate
-            prefs[Keys.VIDEO_FPS] = settings.videoFps
-            prefs[Keys.AUDIO_BITRATE] = settings.audioBitrate
-            prefs[Keys.TOUCH_HEATMAP] = settings.touchHeatmapEnabled
-            prefs[Keys.AUTO_CLIP] = settings.autoClipEnabled
-            prefs[Keys.CHAT_OVERLAY] = settings.chatOverlayEnabled
-            prefs[Keys.ADAPTIVE_BITRATE] = settings.adaptiveBitrateEnabled
-            prefs[Keys.NOISE_SUPPRESSION] = settings.noiseSuppressionEnabled
-            prefs[Keys.ECHO_CANCELLATION] = settings.isEchoCancellationEnabled
-            prefs[Keys.NOISE_GATE_THRESHOLD] = settings.noiseGateThresholdDb
-            prefs[Keys.NOISE_SUPPRESSION_LEVEL] = settings.noiseSuppressionLevel
-            prefs[Keys.BACKGROUND_BLUR] = settings.backgroundBlurEnabled
-            prefs[Keys.GREEN_SCREEN] = settings.greenScreenEnabled
-            prefs[Keys.LOCAL_RECORDING] = settings.localRecordingEnabled
-            prefs[Keys.AUTO_RECONNECT] = settings.autoReconnectEnabled
-            prefs[Keys.LOW_LATENCY] = settings.lowLatencyModeEnabled
-            prefs[Keys.HEATMAP_DECAY] = settings.heatmapDecayTimeMs
-            prefs[Keys.AUTO_CLIP_DURATION] = settings.autoClipDurationS
-            prefs[Keys.PRIVACY_GUARD_BLUR] = settings.privacyGuardBlurIntensity
-            prefs[Keys.MIC_VOLUME] = settings.micVolume
-            prefs[Keys.GAME_VOLUME] = settings.gameVolume
-            prefs[Keys.MUSIC_VOLUME] = settings.musicVolume
-            prefs[Keys.ALERTS_VOLUME] = settings.alertsVolume
-            prefs[Keys.MASTER_VOLUME] = settings.masterVolume
-            prefs[Keys.IS_MIC_MUTED] = settings.isMicMuted
-            prefs[Keys.IS_GAME_MUTED] = settings.isGameMuted
-            prefs[Keys.IS_MUSIC_MUTED] = settings.isMusicMuted
-            prefs[Keys.IS_ALERTS_MUTED] = settings.isAlertsMuted
-            prefs[Keys.SELECTED_APP_PACKAGE] = settings.selectedAppPackage
-            prefs[Keys.CAPTURE_MODE_ORDINAL] = settings.captureModeOrdinal
-            prefs[Keys.SELECTED_MIC_DEVICE_ID] = settings.selectedMicDeviceId
+        writeMutex.withLock {
+            dataStore.edit { prefs ->
+                prefs[Keys.VIDEO_RESOLUTION] = settings.videoResolution
+                prefs[Keys.VIDEO_BITRATE] = settings.videoBitrate
+                prefs[Keys.VIDEO_FPS] = settings.videoFps
+                prefs[Keys.AUDIO_BITRATE] = settings.audioBitrate
+                prefs[Keys.TOUCH_HEATMAP] = settings.touchHeatmapEnabled
+                prefs[Keys.AUTO_CLIP] = settings.autoClipEnabled
+                prefs[Keys.CHAT_OVERLAY] = settings.chatOverlayEnabled
+                prefs[Keys.ADAPTIVE_BITRATE] = settings.adaptiveBitrateEnabled
+                prefs[Keys.NOISE_SUPPRESSION] = settings.noiseSuppressionEnabled
+                prefs[Keys.ECHO_CANCELLATION] = settings.isEchoCancellationEnabled
+                prefs[Keys.NOISE_GATE_THRESHOLD] = settings.noiseGateThresholdDb
+                prefs[Keys.NOISE_SUPPRESSION_LEVEL] = settings.noiseSuppressionLevel
+                prefs[Keys.BACKGROUND_BLUR] = settings.backgroundBlurEnabled
+                prefs[Keys.GREEN_SCREEN] = settings.greenScreenEnabled
+                prefs[Keys.LOCAL_RECORDING] = settings.localRecordingEnabled
+                prefs[Keys.AUTO_RECONNECT] = settings.autoReconnectEnabled
+                prefs[Keys.LOW_LATENCY] = settings.lowLatencyModeEnabled
+                prefs[Keys.HEATMAP_DECAY] = settings.heatmapDecayTimeMs
+                prefs[Keys.AUTO_CLIP_DURATION] = settings.autoClipDurationS
+                prefs[Keys.PRIVACY_GUARD_BLUR] = settings.privacyGuardBlurIntensity
+                prefs[Keys.MIC_VOLUME] = settings.micVolume
+                prefs[Keys.GAME_VOLUME] = settings.gameVolume
+                prefs[Keys.MUSIC_VOLUME] = settings.musicVolume
+                prefs[Keys.ALERTS_VOLUME] = settings.alertsVolume
+                prefs[Keys.MASTER_VOLUME] = settings.masterVolume
+                prefs[Keys.IS_MIC_MUTED] = settings.isMicMuted
+                prefs[Keys.IS_GAME_MUTED] = settings.isGameMuted
+                prefs[Keys.IS_MUSIC_MUTED] = settings.isMusicMuted
+                prefs[Keys.IS_ALERTS_MUTED] = settings.isAlertsMuted
+                prefs[Keys.SELECTED_APP_PACKAGE] = settings.selectedAppPackage
+                prefs[Keys.CAPTURE_MODE_ORDINAL] = settings.captureModeOrdinal
+                prefs[Keys.SELECTED_MIC_DEVICE_ID] = settings.selectedMicDeviceId
+            }
+        }
+    }
+
+    suspend fun updateVolumes(
+        mic: Float? = null,
+        game: Float? = null,
+        music: Float? = null,
+        alerts: Float? = null,
+        master: Float? = null,
+        micMuted: Boolean? = null,
+        gameMuted: Boolean? = null,
+        musicMuted: Boolean? = null,
+        alertsMuted: Boolean? = null
+    ) {
+        writeMutex.withLock {
+            dataStore.edit { prefs ->
+                mic?.let { prefs[Keys.MIC_VOLUME] = it }
+                game?.let { prefs[Keys.GAME_VOLUME] = it }
+                music?.let { prefs[Keys.MUSIC_VOLUME] = it }
+                alerts?.let { prefs[Keys.ALERTS_VOLUME] = it }
+                master?.let { prefs[Keys.MASTER_VOLUME] = it }
+                micMuted?.let { prefs[Keys.IS_MIC_MUTED] = it }
+                gameMuted?.let { prefs[Keys.IS_GAME_MUTED] = it }
+                musicMuted?.let { prefs[Keys.IS_MUSIC_MUTED] = it }
+                alertsMuted?.let { prefs[Keys.IS_ALERTS_MUTED] = it }
+            }
         }
     }
 }

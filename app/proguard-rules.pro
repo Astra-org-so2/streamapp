@@ -1,4 +1,4 @@
-# Keep Kotlin Serialization models
+# KotlinX Serialization specific rules
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable <fields>;
@@ -6,7 +6,15 @@
 -keepclassmembers class * {
     @kotlinx.serialization.SerialName <fields>;
 }
--keep class kotlinx.serialization.json.** { *; }
+-keepclassmembers class * {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclassmembers class **$$serializer {
+    *;
+}
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.Serializable class *;
+}
 
 # Keep Room entities and DAOs
 -keep class * extends androidx.room.RoomDatabase

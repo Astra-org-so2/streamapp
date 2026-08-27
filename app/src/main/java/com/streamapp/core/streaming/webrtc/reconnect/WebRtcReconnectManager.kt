@@ -28,33 +28,34 @@ class WebRtcReconnectManager @Inject constructor() {
     }
 
     suspend fun attemptReconnect(onPerformIceRestart: suspend () -> Boolean): Boolean {
-        currentAttempt++
-        if (currentAttempt > maxAttempts) {
-            AppLogger.e(LogCategory.STREAMING, "Maximum reconnection attempts ($maxAttempts) exhausted")
-            _reconnectState.value = StreamingConnectionState.Error(
-                AppError.ConnectionTimeout("Unable to restore streaming connection after $maxAttempts attempts")
+        while (currentAttempt < maxAttempts) {
+            currentAttempt++
+            val backoffDelayMs = (1000L * 2.0.pow((currentAttempt - 1).toDouble())).toLong()
+            val clampedDelay = min(backoffDelayMs, 8000L)
+
+            AppLogger.w(
+                LogCategory.STREAMING,
+                "Reconnection attempt $currentAttempt/$maxAttempts (Waiting ${clampedDelay}ms before ICE restart)"
             )
-            return false
+            _reconnectState.value = StreamingConnectionState.Reconnecting(currentAttempt, maxAttempts)
+
+            delay(clampedDelay)
+            try {
+                val success = onPerformIceRestart()
+                if (success) {
+                    AppLogger.i(LogCategory.STREAMING, "Reconnection successful on attempt $currentAttempt")
+                    reset()
+                    return true
+                }
+            } catch (e: Exception) {
+                AppLogger.e(LogCategory.STREAMING, "Reconnection attempt $currentAttempt failed with exception: ${e.message}")
+            }
         }
 
-        val backoffDelayMs = (1000L * 2.0.pow((currentAttempt - 1).toDouble())).toLong()
-        val clampedDelay = min(backoffDelayMs, 8000L)
-
-        AppLogger.w(
-            LogCategory.STREAMING,
-            "Reconnection attempt $currentAttempt/$maxAttempts (Waiting ${clampedDelay}ms before ICE restart)"
+        AppLogger.e(LogCategory.STREAMING, "Maximum reconnection attempts ($maxAttempts) exhausted")
+        _reconnectState.value = StreamingConnectionState.Error(
+            AppError.ConnectionTimeout("Unable to restore streaming connection after $maxAttempts attempts")
         )
-        _reconnectState.value = StreamingConnectionState.Reconnecting(currentAttempt, maxAttempts)
-
-        delay(clampedDelay)
-        val success = onPerformIceRestart()
-        if (success) {
-            AppLogger.i(LogCategory.STREAMING, "Reconnection successful on attempt $currentAttempt")
-            reset()
-            _reconnectState.value = StreamingConnectionState.Connected
-            return true
-        }
-
         return false
     }
 }

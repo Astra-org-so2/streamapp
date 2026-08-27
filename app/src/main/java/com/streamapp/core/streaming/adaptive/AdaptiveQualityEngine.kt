@@ -3,6 +3,7 @@ package com.streamapp.core.streaming.adaptive
 import com.streamapp.core.common.logger.AppLogger
 import com.streamapp.core.common.logger.LogCategory
 import com.streamapp.core.model.stream.Resolution
+import com.streamapp.core.model.stream.StreamConfiguration
 import com.streamapp.core.model.stream.StreamStatistics
 import com.streamapp.core.model.stream.TargetFps
 import javax.inject.Inject
@@ -21,9 +22,26 @@ class AdaptiveQualityEngine @Inject constructor() {
     private var consecutiveDegradedTicks = 0
     private var consecutiveCleanTicks = 0
 
+    private var activeConfig: StreamConfiguration? = null
     private var currentResolution: Resolution = Resolution.R_1080P
     private var currentFps: TargetFps = TargetFps.FPS_60
     private var currentBitrateKbps: Int = 20_000
+
+    /**
+     * Initializes adaptive engine with the active stream's target configuration.
+     */
+    fun initialize(config: StreamConfiguration) {
+        activeConfig = config
+        currentResolution = config.targetResolution
+        currentFps = config.targetFps
+        currentBitrateKbps = config.maxBitrateKbps
+        consecutiveDegradedTicks = 0
+        consecutiveCleanTicks = 0
+        AppLogger.i(
+            LogCategory.STREAMING,
+            "AdaptiveQualityEngine initialized with ${config.targetResolution} @ ${config.targetFps.value} FPS (Max: ${config.maxBitrateKbps} kbps)"
+        )
+    }
 
     /**
      * Evaluates streaming telemetry and applies hysteresis to prevent flapping.
