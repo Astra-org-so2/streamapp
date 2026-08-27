@@ -269,8 +269,10 @@ class BroadcastManager @Inject constructor(
     fun release() {
         stopStreaming(isScreenStream = true)
         stopStreaming(isScreenStream = false)
-        compositeSceneRenderer.release()
-        managerScope.cancel()
+        managerScope.launch(dispatchers.main) {
+            compositeSceneRenderer.release()
+            managerScope.cancel()
+        }
     }
 
     override fun onConnectionStarted(url: String) {
